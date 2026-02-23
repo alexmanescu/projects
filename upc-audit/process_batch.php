@@ -30,14 +30,14 @@ if (isset($_POST['reset_errors'])) {
 // API Configuration
 $api_configs = [
     'barcodelookup' => [
-        'key' => '',
+        'key' => getenv('BARCODELOOKUP_KEY'),
         'url' => 'https://api.barcodelookup.com/v3/products',
         'delay' => 500000
     ],
     'REDACTED' => [
-        'key' => '',
+        'key' => getenv('UPCITEMDB_KEY'),
         'url' => 'https://api.REDACTED.com/prod/v1/lookup',
-        'delay' => 2200000, // 2.2s — slightly above sustainable rate
+        'delay' => 2200000,
         'batch_size' => 10
     ]
 ];

@@ -1,9 +1,9 @@
 <?php
 // Database configuration
-$host = 'localhost';
-$dbname = '';
-$user = '';
-$pass = ''; // Replace with your actual password
+$host = getenv('DB_HOST');
+$user = getenv('DB_USER');
+$password = getenv('DB_PASS');
+$dbname = getenv('DB_NAME');
 
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $user, $pass);
