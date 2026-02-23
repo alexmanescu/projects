@@ -1,0 +1,21 @@
+[17-Feb-2026 20:22:36 UTC] PHP Fatal error:  Uncaught PDOException: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near ''10'' at line 1 in /home/alexmane/public_html/projects/upc-audit/process_batch.php:41
+Stack trace:
+#0 /home/alexmane/public_html/projects/upc-audit/process_batch.php(41): PDOStatement->execute()
+#1 {main}
+  thrown in /home/alexmane/public_html/projects/upc-audit/process_batch.php on line 41
+[17-Feb-2026 20:22:44 UTC] PHP Fatal error:  Uncaught PDOException: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near ''10'' at line 1 in /home/alexmane/public_html/projects/upc-audit/process_batch.php:41
+Stack trace:
+#0 /home/alexmane/public_html/projects/upc-audit/process_batch.php(41): PDOStatement->execute()
+#1 {main}
+  thrown in /home/alexmane/public_html/projects/upc-audit/process_batch.php on line 41
+[17-Feb-2026 20:29:52 UTC] PHP Fatal error:  Uncaught PDOException: SQLSTATE[42000]: Syntax error or access violation: 1064 You have an error in your SQL syntax; check the manual that corresponds to your MariaDB server version for the right syntax to use near ''10'' at line 1 in /home/alexmane/public_html/projects/upc-audit/process_batch.php:48
+Stack trace:
+#0 /home/alexmane/public_html/projects/upc-audit/process_batch.php(48): PDOStatement->execute()
+#1 {main}
+  thrown in /home/alexmane/public_html/projects/upc-audit/process_batch.php on line 48
+[18-Feb-2026 18:54:34 UTC] PHP Fatal error:  Allowed memory size of 268435456 bytes exhausted (tried to allocate 20480 bytes) in /home/alexmane/public_html/projects/upc-audit/export.php on line 38
+[18-Feb-2026 19:23:24 UTC] PHP Fatal error:  Uncaught PDOException: SQLSTATE[HY000]: General error: 1205 Lock wait timeout exceeded; try restarting transaction in /home/alexmane/public_html/projects/upc-audit/deduplicate.php:100
+Stack trace:
+#0 /home/alexmane/public_html/projects/upc-audit/deduplicate.php(100): PDO->exec()
+#1 {main}
+  thrown in /home/alexmane/public_html/projects/upc-audit/deduplicate.php on line 100

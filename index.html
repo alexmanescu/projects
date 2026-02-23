@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Alex Manescu - Projects</title>
+  <meta name="description" content="Project directory for Alex Manescu.">
+  <link rel="icon" type="image/png" sizes="32x32" href="../images/favicon.png">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1FA90;</text></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      --fg: #1a1a1a;
+      --fg-muted: #5a5a5a;
+      --fg-subtle: #8a8a8a;
+      --bg: #f4f1ec;
+      --bg-warm: #eae5dc;
+      --accent: #c44b2b;
+      --accent-hover: #a33d23;
+      --accent-glow: rgba(196, 75, 43, 0.12);
+      --font-display: 'DM Serif Display', Georgia, serif;
+      --font-body: 'Instrument Sans', system-ui, sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+      --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+
+    body {
+      font-family: var(--font-body);
+      background: var(--bg);
+      color: var(--fg);
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    ::selection { background: var(--accent); color: #fff; }
+
+    .page-wrapper {
+      max-width: 860px;
+      margin: 0 auto;
+      padding: 3rem 2rem 4rem;
+    }
+
+    /* --- Breadcrumb --- */
+    .breadcrumb {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--fg-subtle);
+      margin-bottom: 2.5rem;
+      letter-spacing: 0.03em;
+      opacity: 0;
+      animation: fadeSlideDown 0.8s var(--ease-out-expo) 0.1s forwards;
+    }
+    .breadcrumb a {
+      color: var(--fg-subtle);
+      text-decoration: none;
+      transition: color 0.3s;
+    }
+    .breadcrumb a:hover { color: var(--accent); }
+    .breadcrumb .sep { margin: 0 0.4rem; opacity: 0.4; }
+
+    /* --- Header --- */
+    .projects-header {
+      margin-bottom: 2.5rem;
+      opacity: 0;
+      animation: fadeSlideUp 1s var(--ease-out-expo) 0.2s forwards;
+    }
+    .projects-header h1 {
+      font-family: var(--font-display);
+      font-size: clamp(2rem, 4.5vw, 3rem);
+      font-weight: 400;
+      letter-spacing: -0.02em;
+      margin-bottom: 0.5rem;
+    }
+    .projects-header h1 em {
+      font-style: italic;
+      color: var(--accent);
+    }
+    .projects-header p {
+      font-family: var(--font-mono);
+      font-size: 0.78rem;
+      color: var(--fg-muted);
+      line-height: 1.6;
+    }
+
+    /* --- Explorer Window --- */
+    .explorer {
+      background: #fff;
+      border: 1px solid rgba(0,0,0,0.08);
+      border-radius: 10px;
+      overflow: hidden;
+      box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+      opacity: 0;
+      animation: fadeSlideUp 1s var(--ease-out-expo) 0.4s forwards;
+    }
+
+    .explorer__bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      background: #f8f7f5;
+      border-bottom: 1px solid rgba(0,0,0,0.06);
+    }
+    .explorer__dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+    .explorer__dot--red { background: #ff5f57; }
+    .explorer__dot--yellow { background: #ffbd2e; }
+    .explorer__dot--green { background: #28c840; }
+
+    .explorer__path {
+      flex: 1;
+      text-align: center;
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--fg-subtle);
+      letter-spacing: 0.02em;
+    }
+
+    .explorer__body {
+      padding: 0.5rem 0;
+    }
+
+    /* --- Folder Row --- */
+    .folder-row {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 1.5rem;
+      cursor: pointer;
+      transition: background 0.2s ease;
+      text-decoration: none;
+      color: var(--fg);
+      border-bottom: 1px solid rgba(0,0,0,0.03);
+      position: relative;
+    }
+    .folder-row:last-child { border-bottom: none; }
+    .folder-row:hover { background: rgba(196, 75, 43, 0.04); }
+    .folder-row:hover .folder-row__icon { transform: scale(1.08); }
+
+    .folder-row__icon {
+      font-size: 1.8rem;
+      flex-shrink: 0;
+      transition: transform 0.3s var(--ease-out-expo);
+      width: 40px;
+      text-align: center;
+    }
+
+    .folder-row__info { flex: 1; min-width: 0; }
+
+    .folder-row__name {
+      font-family: var(--font-body);
+      font-size: 0.95rem;
+      font-weight: 600;
+      margin-bottom: 0.15rem;
+    }
+
+    .folder-row__desc {
+      font-size: 0.78rem;
+      color: var(--fg-muted);
+      line-height: 1.45;
+    }
+
+    .folder-row__meta {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      color: var(--fg-subtle);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      flex-shrink: 0;
+      text-align: right;
+    }
+
+    .folder-row__arrow {
+      color: var(--fg-subtle);
+      font-size: 1.1rem;
+      flex-shrink: 0;
+      transition: transform 0.3s var(--ease-out-expo), color 0.3s;
+    }
+    .folder-row:hover .folder-row__arrow {
+      transform: translateX(4px);
+      color: var(--accent);
+    }
+
+    /* --- Lock badge --- */
+    .folder-row__lock {
+      display: inline-block;
+      font-size: 0.6rem;
+      background: var(--bg-warm);
+      color: var(--fg-subtle);
+      padding: 2px 6px;
+      border-radius: 3px;
+      margin-left: 0.5rem;
+      font-family: var(--font-mono);
+      letter-spacing: 0.04em;
+      vertical-align: middle;
+    }
+
+    /* --- Password Modal --- */
+    .pw-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.4);
+      z-index: 1000;
+      align-items: center;
+      justify-content: center;
+    }
+    .pw-overlay.active { display: flex; }
+
+    .pw-modal {
+      background: #fff;
+      border-radius: 10px;
+      padding: 2rem;
+      max-width: 380px;
+      width: 90%;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.15);
+      text-align: center;
+    }
+    .pw-modal h3 {
+      font-family: var(--font-body);
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 0.3rem;
+    }
+    .pw-modal p {
+      font-size: 0.8rem;
+      color: var(--fg-muted);
+      margin-bottom: 1.2rem;
+    }
+    .pw-modal input[type="password"] {
+      width: 100%;
+      padding: 0.65rem 0.9rem;
+      font-family: var(--font-mono);
+      font-size: 0.82rem;
+      border: 1px solid rgba(0,0,0,0.12);
+      border-radius: 6px;
+      outline: none;
+      background: var(--bg);
+      transition: border-color 0.3s;
+      margin-bottom: 0.8rem;
+    }
+    .pw-modal input[type="password"]:focus {
+      border-color: var(--accent);
+    }
+    .pw-modal .pw-error {
+      font-family: var(--font-mono);
+      font-size: 0.7rem;
+      color: var(--accent);
+      margin-bottom: 0.6rem;
+      display: none;
+    }
+    .pw-modal button {
+      width: 100%;
+      padding: 0.6rem;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-family: var(--font-body);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+    .pw-modal button:hover { background: var(--accent-hover); }
+    .pw-modal .pw-cancel {
+      background: none;
+      color: var(--fg-subtle);
+      font-size: 0.75rem;
+      margin-top: 0.6rem;
+      font-weight: 400;
+    }
+    .pw-modal .pw-cancel:hover { color: var(--fg); background: none; }
+
+    /* --- Footer --- */
+    .page-footer {
+      margin-top: 3rem;
+      padding-top: 2rem;
+      border-top: 1px solid rgba(0,0,0,0.06);
+      font-family: var(--font-mono);
+      font-size: 0.68rem;
+      color: var(--fg-subtle);
+      opacity: 0;
+      animation: fadeSlideUp 1s var(--ease-out-expo) 0.6s forwards;
+    }
+    .page-footer a {
+      color: var(--fg-subtle);
+      text-decoration: none;
+      transition: color 0.3s;
+    }
+    .page-footer a:hover { color: var(--accent); }
+
+    /* --- Animations --- */
+    @keyframes fadeSlideUp {
+      from { opacity: 0; transform: translateY(18px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeSlideDown {
+      from { opacity: 0; transform: translateY(-12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    @media (max-width: 600px) {
+      .page-wrapper { padding: 2rem 1.3rem 3rem; }
+      .folder-row { padding: 0.9rem 1.1rem; gap: 0.8rem; }
+      .folder-row__meta { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="page-wrapper">
+
+    <!-- Breadcrumb -->
+    <nav class="breadcrumb">
+      <a href="../">~/alexmanescu.com</a><span class="sep">/</span><span>projects</span>
+    </nav>
+
+    <!-- Header -->
+    <div class="projects-header">
+      <h1><em>Projects</em></h1>
+      <p>Select a folder to open.</p>
+    </div>
+
+    <!-- Explorer Window -->
+    <div class="explorer">
+      <div class="explorer__bar">
+        <span class="explorer__dot explorer__dot--red"></span>
+        <span class="explorer__dot explorer__dot--yellow"></span>
+        <span class="explorer__dot explorer__dot--green"></span>
+        <span class="explorer__path">~/projects/</span>
+      </div>
+      <div class="explorer__body">
+
+        <!--
+          ============================================================
+          PROJECT ENTRIES
+          ============================================================
+          To add a new project, copy a folder-row block below.
+
+          OPEN (no password):
+            data-href="FOLDER_NAME/index.html"
+
+          PASSWORD PROTECTED:
+            data-href="FOLDER_NAME/index.html"
+            data-protected="true"
+            data-pw="your_password_here"
+            Add the lock badge span inside folder-row__name
+
+          To toggle protection on/off, just add or remove
+          data-protected and data-pw attributes.
+          ============================================================
+        -->
+
+        <a class="folder-row" data-href="MI/index.html">
+          <span class="folder-row__icon">&#x1F4C1;</span>
+          <div class="folder-row__info">
+            <div class="folder-row__name">Mutual Industries</div>
+            <div class="folder-row__desc">Digital operations, e-commerce integrations, and automation projects.</div>
+          </div>
+          <span class="folder-row__meta">Active</span>
+          <span class="folder-row__arrow">&rsaquo;</span>
+        </a>
+
+        <a class="folder-row" data-href="event_seating_tool/index.html">
+          <span class="folder-row__icon">&#x1F4C1;</span>
+          <div class="folder-row__info">
+            <div class="folder-row__name">Event Seating Tool</div>
+            <div class="folder-row__desc">Interactive seating arrangement tool for event planning.</div>
+          </div>
+          <span class="folder-row__meta">Active</span>
+          <span class="folder-row__arrow">&rsaquo;</span>
+        </a>
+		
+        <a class="folder-row" data-href="upc-audit/index.php" data-protected="true" data-pw="Welcome@23">
+          <span class="folder-row__icon">&#x1F4C1;</span>
+          <div class="folder-row__info">
+            <div class="folder-row__name">UPC Audit <span class="folder-row__lock">&#x1F512; locked</span></div>
+            <div class="folder-row__desc">UPC code auditing tool</div>
+          </div>
+          <span class="folder-row__meta">Active</span>
+          <span class="folder-row__arrow">&rsaquo;</span>
+        </a>
+
+        <!--
+          EXAMPLE: Password protected project (uncomment to use)
+
+        <a class="folder-row" data-href="secret_project/index.html" data-protected="true" data-pw="letmein">
+          <span class="folder-row__icon">&#x1F4C2;</span>
+          <div class="folder-row__info">
+            <div class="folder-row__name">Secret Project <span class="folder-row__lock">&#x1F512; locked</span></div>
+            <div class="folder-row__desc">A password-protected project.</div>
+          </div>
+          <span class="folder-row__meta">Private</span>
+          <span class="folder-row__arrow">&rsaquo;</span>
+        </a>
+        -->
+
+      </div>
+    </div>
+
+    <!-- Footer -->
+    <div class="page-footer">
+      <a href="../">&larr; back to alexmanescu.com</a>
+    </div>
+
+  </div>
+
+  <!-- Password Modal -->
+  <div class="pw-overlay" id="pw-overlay">
+    <div class="pw-modal">
+      <h3>This project is locked</h3>
+      <p>Enter the password to continue.</p>
+      <div class="pw-error" id="pw-error">Incorrect password. Try again.</div>
+      <input type="password" id="pw-input" placeholder="password" autocomplete="off" spellcheck="false">
+      <button id="pw-submit">Open</button>
+      <button class="pw-cancel" id="pw-cancel">Cancel</button>
+    </div>
+  </div>
+
+  <script>
+    (function() {
+      var overlay = document.getElementById('pw-overlay');
+      var pwInput = document.getElementById('pw-input');
+      var pwError = document.getElementById('pw-error');
+      var pwSubmit = document.getElementById('pw-submit');
+      var pwCancel = document.getElementById('pw-cancel');
+      var pendingHref = '';
+      var pendingPw = '';
+
+      // Handle folder clicks
+      var rows = document.querySelectorAll('.folder-row');
+      rows.forEach(function(row) {
+        row.addEventListener('click', function(e) {
+          e.preventDefault();
+          var href = row.getAttribute('data-href');
+          var isProtected = row.getAttribute('data-protected') === 'true';
+          var pw = row.getAttribute('data-pw') || '';
+
+          if (isProtected && pw) {
+            pendingHref = href;
+            pendingPw = pw;
+            pwError.style.display = 'none';
+            pwInput.value = '';
+            overlay.classList.add('active');
+            setTimeout(function() { pwInput.focus(); }, 100);
+          } else {
+            window.location.href = href;
+          }
+        });
+      });
+
+      // Submit password
+      pwSubmit.addEventListener('click', function() {
+        if (pwInput.value === pendingPw) {
+          overlay.classList.remove('active');
+          window.location.href = pendingHref;
+        } else {
+          pwError.style.display = 'block';
+          pwInput.value = '';
+          pwInput.focus();
+        }
+      });
+
+      // Enter key in password field
+      pwInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') pwSubmit.click();
+      });
+
+      // Cancel
+      pwCancel.addEventListener('click', function() {
+        overlay.classList.remove('active');
+        pendingHref = '';
+        pendingPw = '';
+      });
+
+      // Click outside modal to close
+      overlay.addEventListener('click', function(e) {
+        if (e.target === overlay) pwCancel.click();
+      });
+    })();
+  </script>
+
+</body>
+</html>
