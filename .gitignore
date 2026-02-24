@@ -1,0 +1,5 @@
+.env
+config.local.php
+upc-audit/db_config.php
+upc-audit/.gitignore
+upc-audit/error_log
