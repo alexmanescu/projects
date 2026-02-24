@@ -4,3 +4,4 @@ upc-audit/db_config.php
 upc-audit/.gitignore
 upc-audit/error_log
 deploy.ps1
+ssh-server.ps1
