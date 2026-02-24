@@ -30,14 +30,14 @@ if (isset($_POST['reset_errors'])) {
 // API Configuration
 $api_configs = [
     'barcodelookup' => [
-        'key' => getenv('BARCODELOOKUP_KEY'),
+        'key' => '1fu4ju8dcw372vgm9m7xckxfm7w8zf',
         'url' => 'https://api.barcodelookup.com/v3/products',
         'delay' => 500000
     ],
-    'REDACTED' => [
-        'key' => getenv('UPCITEMDB_KEY'),
-        'url' => 'https://api.REDACTED.com/prod/v1/lookup',
-        'delay' => 2200000,
+    'upcitemdb' => [
+        'key' => 'cd4f644bb63b8e53b8cb2cd2becc599f',
+        'url' => 'https://api.upcitemdb.com/prod/v1/lookup',
+        'delay' => 2200000, // 2.2s — slightly above sustainable rate
         'batch_size' => 10
     ]
 ];
@@ -104,7 +104,7 @@ $update_stmt = $pdo->prepare("
     WHERE id = ?
 ");
 
-// Helper: extract product data from REDACTED item
+// Helper: extract product data from upcitemdb item
 function extractUpcitemdbProduct($product) {
     $product_name = $product['title'] ?? 'Unknown Product';
     $brand = $product['brand'] ?? null;
@@ -165,7 +165,7 @@ function parseRateLimitHeaders($header_text) {
     return $headers;
 }
 
-if ($api_source === 'REDACTED') {
+if ($api_source === 'upcitemdb') {
     // ─── BATCH MODE: up to 10 UPCs per API call ───
     $api_batch_size = $config['batch_size'];
     $chunks = array_chunk($pending, $api_batch_size);
