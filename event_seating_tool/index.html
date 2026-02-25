@@ -376,8 +376,9 @@
                                 <div key={t.id} className="border rounded-lg overflow-hidden">
                                     <div className="bg-slate-100 px-3 py-2 font-bold text-slate-700 flex justify-between items-center text-xs">
                                         <div className="flex items-center gap-2">
+                                            {t.number != null && <span className="text-slate-400 font-normal mr-1">#{t.number}</span>}
                                             {editingId === t.id ? (
-                                                <input value={tempName} onChange={e => setTempName(e.target.value)} onBlur={() => { if(tempName.trim()) updateTableName(t.id, tempName); setEditingId(null); }} onKeyDown={e => e.key === 'Enter' && (tempName.trim() ? updateTableName(t.id, tempName) : null) || setEditingId(null) } autoFocus className="px-1 border border-blue-300 rounded outline-none w-32" />
+                                                <input value={tempName} onChange={e => setTempName(e.target.value)} onBlur={() => { if(tempName.trim()) updateTableName(t.id, tempName); setEditingId(null); }} onKeyDown={e => { if (e.key === 'Enter') { if (tempName.trim()) updateTableName(t.id, tempName); setEditingId(null); } else if (e.key === 'Escape') setEditingId(null); }} autoFocus className="px-1 border border-blue-300 rounded outline-none w-32" />
                                             ) : (
                                                 <>{t.name} <button onClick={() => { setEditingId(t.id); setTempName(t.name); }} className="text-blue-500 hover:text-blue-700"><Icon name="Pencil" size={12}/></button></>
                                             )}
@@ -515,9 +516,9 @@
 
             const [tables, setTables] = useState(() => {
                 const initial = [];
-                initial.push({ id: `table-banquet`, name: 'Banquet Table', type: 'rect', capacity: 24, x: 400, y: 50, width: 400, height: 220, rotation: 0 });
+                initial.push({ id: `table-banquet`, number: 0, name: 'Banquet Table', type: 'rect', capacity: 24, x: 400, y: 50, width: 400, height: 220, rotation: 0 });
                 for (let i = 1; i <= 14; i++) {
-                    initial.push({ id: `table-${i}`, name: `Table ${i}`, type: 'round', capacity: 10, x: 100 + ((i-1)%4 * 300), y: 300 + (Math.floor((i-1)/4) * 300), rotation: 0 });
+                    initial.push({ id: `table-${i}`, number: i, name: `Table ${i}`, type: 'round', capacity: 10, x: 100 + ((i-1)%4 * 300), y: 300 + (Math.floor((i-1)/4) * 300), rotation: 0 });
                 }
                 return initial;
             });
@@ -566,7 +567,7 @@
                     const result = await res.json();
                     if (result.success && result.data) {
                         const d = result.data;
-                        if(d.tables) setTables(d.tables); if(d.guests) setGuests(d.guests); if(d.roomName) setRoomName(d.roomName);
+                        if(d.tables) setTables(d.tables.map((t, i) => { if (t.number != null) return t; const parsed = parseInt(t.name.replace(/\D/g, '')); return { ...t, number: isNaN(parsed) ? i + 1 : parsed }; })); if(d.guests) setGuests(d.guests); if(d.roomName) setRoomName(d.roomName);
                         if(d.bgImage) setBgImage(d.bgImage); if(d.bgImageDims) setBgImageDims(d.bgImageDims);
                         if(d.roundTableSize) setRoundTableSize(d.roundTableSize); if(d.bgScale) setBgScale(d.bgScale);
                         setPlanName(name); // Set current loaded plan
@@ -580,12 +581,13 @@
             const exportSeatedCSV = () => {
                 const seatedGuests = guests.filter(g => g.status !== 'removed');
                 if (seatedGuests.length === 0) return showNotification("No guests available to export.");
-                const csvRows = [["Guest Name", "Meal Choice", "Table Assignment"].join(",")];
+                const csvRows = [["Guest Name", "Meal Choice", "Table Name", "Table #"].join(",")];
                 seatedGuests.forEach(g => {
                     const table = tables.find(t => t.id === g.tableId);
                     const tableName = table ? table.name : "Unassigned";
+                    const tableNum = table && table.number != null ? table.number : "";
                     const meal = g.meal || "No selection";
-                    csvRows.push([`"${g.name.replace(/"/g, '""')}"`, `"${meal.replace(/"/g, '""')}"`, `"${tableName.replace(/"/g, '""')}"`].join(","));
+                    csvRows.push([`"${g.name.replace(/"/g, '""')}"`, `"${meal.replace(/"/g, '""')}"`, `"${tableName.replace(/"/g, '""')}"`, `"${tableNum}"`].join(","));
                 });
                 const link = document.createElement("a");
                 link.href = URL.createObjectURL(new Blob([csvRows.join("\n")], { type: 'text/csv;charset=utf-8;' }));
@@ -607,11 +609,12 @@
                     
                     // Report Page
                     pdf.addPage(); pdf.setFontSize(18); pdf.text("Guest Seating Report", 10, 15);
-                    let cy = 25; const sorted = [...tables].sort((a,b) => (parseInt(a.name.replace(/\D/g,'')) || 0) - (parseInt(b.name.replace(/\D/g,'')) || 0));
+                    let cy = 25; const sorted = [...tables].sort((a,b) => (a.number ?? 999) - (b.number ?? 999));
                     sorted.forEach(t => {
                         const gs = guests.filter(x => x.tableId === t.id).sort((a,b) => (a.seatIndex||0)-(b.seatIndex||0));
                         if (cy > pdf.internal.pageSize.getHeight() - 20) { pdf.addPage(); cy = 20; }
-                        pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.text(`${t.name}:`, 10, cy); cy += 6;
+                        const tableLabel = t.number != null ? `#${t.number} - ${t.name}` : t.name;
+                        pdf.setFont("helvetica", "bold"); pdf.setFontSize(12); pdf.text(`${tableLabel}:`, 10, cy); cy += 6;
                         pdf.setFont("helvetica", "normal"); pdf.setFontSize(10);
                         const txt = gs.length ? gs.map(x => `${x.name} (${x.meal || 'No meal'})`).join(', ') : "No guests seated.";
                         const split = pdf.splitTextToSize(txt, w - 20); pdf.text(split, 10, cy); cy += (split.length * 5) + 5;
@@ -621,7 +624,7 @@
             };
 
             const handleReset = () => { if(confirm("Are you sure you want to unseat all guests? This will clear all seating assignments.")) { setGuests(prev => prev.map(g => ({...g, tableId: null, seatIndex: null}))); showNotification("All guests unseated."); } };
-            const addTable = (type) => { const id = `table-new-${Date.now()}`; const newTable = { id, name: type === 'round' ? 'New Table' : 'New Banquet', type, capacity: type === 'round' ? 10 : 20, guestIds: [], x: 100, y: 100, rotation: 0, ...(type === 'rect' ? { width: 400, height: 200 } : {}) }; setTables(prev => [...prev, newTable]); showNotification(`Added new ${type} table`); };
+            const addTable = (type) => { const id = `table-new-${Date.now()}`; const nextNum = tables.length > 0 ? Math.max(...tables.map(t => t.number ?? 0)) + 1 : 1; const newTable = { id, number: nextNum, name: type === 'round' ? 'New Table' : 'New Banquet', type, capacity: type === 'round' ? 10 : 20, guestIds: [], x: 100, y: 100, rotation: 0, ...(type === 'rect' ? { width: 400, height: 200 } : {}) }; setTables(prev => [...prev, newTable]); showNotification(`Added new ${type} table`); };
             const removeSelectedTables = () => { if (selectedTableIds.size === 0) return; setGuests(prev => prev.map(g => (g.tableId && selectedTableIds.has(g.tableId)) ? { ...g, tableId: null, seatIndex: null } : g)); setTables(prev => prev.filter(t => !selectedTableIds.has(t.id))); setSelectedTableIds(new Set()); showNotification("Tables removed"); };
             const updateTableName = (id, name) => setTables(prev => prev.map(t => t.id === id ? { ...t, name } : t));
             const updateTableCapacity = (id, cap) => { setTables(prev => prev.map(t => t.id === id ? { ...t, capacity: cap } : t)); setGuests(prev => prev.map(g => (g.tableId === id && g.seatIndex >= cap) ? { ...g, tableId: null, seatIndex: null } : g)); };
