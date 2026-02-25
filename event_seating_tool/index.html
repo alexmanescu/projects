@@ -784,11 +784,11 @@
                                     <div className="font-bold text-slate-800 text-sm leading-tight">{roomName}</div>
                                     <div className="text-[10px] text-slate-400">Seated: {seatedCount}/{totalCount}</div>
                                 </div>
-                                <div className="flex items-center gap-1">
-                                    <button onClick={() => setIsSaveModalOpen(true)} className="p-2 text-blue-600 hover:bg-blue-50 rounded" title="Save"><Icon name="FloppyDisk" size={18}/></button>
-                                    <button onClick={() => setIsLoadModalOpen(true)} className="p-2 text-slate-600 hover:bg-slate-100 rounded" title="Load"><Icon name="CloudDownload" size={18}/></button>
-                                    <button onClick={exportSeatedCSV} className="p-2 text-green-600 hover:bg-green-50 rounded" title="CSV"><Icon name="FileSpreadsheet" size={18}/></button>
-                                    <button onClick={handleExportPDF} className="p-2 text-slate-700 hover:bg-slate-100 rounded" title="PDF"><Icon name="Download" size={18}/></button>
+                                <div className="flex items-center gap-0.5">
+                                    <button onClick={() => setIsSaveModalOpen(true)} className="flex flex-col items-center px-2 py-1 text-blue-600 hover:bg-blue-50 rounded gap-0.5"><Icon name="FloppyDisk" size={16}/><span className="text-[9px] font-bold">Save</span></button>
+                                    <button onClick={() => setIsLoadModalOpen(true)} className="flex flex-col items-center px-2 py-1 text-slate-600 hover:bg-slate-100 rounded gap-0.5"><Icon name="CloudDownload" size={16}/><span className="text-[9px] font-bold">Load</span></button>
+                                    <button onClick={exportSeatedCSV} className="flex flex-col items-center px-2 py-1 text-green-600 hover:bg-green-50 rounded gap-0.5"><Icon name="FileSpreadsheet" size={16}/><span className="text-[9px] font-bold">CSV</span></button>
+                                    <button onClick={handleExportPDF} className="flex flex-col items-center px-2 py-1 text-slate-700 hover:bg-slate-100 rounded gap-0.5"><Icon name="Download" size={16}/><span className="text-[9px] font-bold">PDF</span></button>
                                 </div>
                             </header>
 
