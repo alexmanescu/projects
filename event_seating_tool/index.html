@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>Event Seating Chart Tool</title>
     
     <!-- React & ReactDOM -->
@@ -49,14 +49,19 @@
         .cursor-pan { cursor: grab; }
         .cursor-pan:active { cursor: grabbing; }
         
-        .no-spinner::-webkit-inner-spin-button, 
-        .no-spinner::-webkit-outer-spin-button { 
-            -webkit-appearance: none; 
-            margin: 0; 
+        .no-spinner::-webkit-inner-spin-button,
+        .no-spinner::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
         }
+
+        /* Use dynamic viewport height so iOS Safari's address/tab bars don't eat into the layout */
+        .h-dvh { height: 100dvh; }
+        /* Push bottom nav above the iPhone home indicator */
+        .pb-safe { padding-bottom: env(safe-area-inset-bottom, 0px); }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 h-screen overflow-hidden select-none">
+<body class="bg-slate-50 text-slate-900 h-dvh overflow-hidden select-none">
     <div id="root"></div>
 
     <script type="text/babel">
@@ -802,7 +807,7 @@
             );
 
             return (
-                <div className="flex h-screen w-full font-sans text-sm">
+                <div className="flex h-dvh w-full font-sans text-sm">
                     {isUploading && <ProgressBar progress={uploadProgress} />}
                     <SaveModal isOpen={isSaveModalOpen} onClose={() => setIsSaveModalOpen(false)} onSave={handleSaveLayout} currentName={planName} setCurrentName={setPlanName} availableLayouts={availableLayouts} />
                     <LoadModal isOpen={isLoadModalOpen} onClose={() => setIsLoadModalOpen(false)} onLoad={handleLoadLayout} availableLayouts={availableLayouts} />
@@ -811,7 +816,7 @@
                     <Toast message={notification} onClose={() => setNotification(null)} />
 
                     {isMobile ? (
-                        <div className="flex flex-col h-screen w-full">
+                        <div className="flex flex-col h-full w-full">
                             {/* Mobile top bar */}
                             <header className="bg-white border-b border-slate-200 px-4 py-2 flex items-center justify-between shadow-sm shrink-0 z-10">
                                 <div>
@@ -859,7 +864,7 @@
                             </div>
 
                             {/* Bottom tab bar */}
-                            <nav className="bg-white border-t border-slate-200 flex shrink-0 z-10">
+                            <nav className="bg-white border-t border-slate-200 flex shrink-0 z-10 pb-safe">
                                 <button onClick={() => setMobileTab('guests')} className={`flex-1 py-3 flex flex-col items-center gap-0.5 text-[10px] font-bold transition-colors ${mobileTab === 'guests' ? 'text-blue-600' : 'text-slate-500'}`}>
                                     <Icon name="Users" size={20}/> Guests
                                 </button>
