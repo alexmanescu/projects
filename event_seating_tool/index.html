@@ -146,12 +146,12 @@
             </div>
         );
 
-        const RoundTable = ({ table, guests, handleDragOver, handleDropTable, handleDropSeat, handleDragStart, setSelectedGuest, onTableMouseDown, isSelected, size, updateTableCapacity, assigningGuest, setAssigningGuest, moveGuest }) => {
+        const RoundTable = ({ table, guests, handleDragOver, handleDropTable, handleDropSeat, handleDragStart, setSelectedGuest, onTableMouseDown, isSelected, size, updateTableCapacity, assigningGuest, setAssigningGuest, moveGuest, onTableTouchStart }) => {
             const tableGuests = guests.filter(g => g.tableId === table.id);
             const seatRadius = (size / 2) - 38;
 
             return (
-                <div onDragOver={handleDragOver} onDrop={(e) => handleDropTable(e, table.id)} onMouseDown={(e) => onTableMouseDown(e, table.id, table.x, table.y)} className={`absolute flex items-center justify-center transition-shadow duration-300 group cursor-move-table ${isSelected ? 'z-40' : 'z-10'}`} style={{ width: `${size}px`, height: `${size}px`, left: table.x, top: table.y, touchAction: 'none' }}>
+                <div onDragOver={handleDragOver} onDrop={(e) => handleDropTable(e, table.id)} onMouseDown={(e) => onTableMouseDown(e, table.id, table.x, table.y)} onTouchStart={(e) => { if (e.touches.length === 1 && !assigningGuest) { e.stopPropagation(); onTableTouchStart(e, table.id); } }} className={`absolute flex items-center justify-center transition-shadow duration-300 group cursor-move-table ${isSelected ? 'z-40' : 'z-10'}`} style={{ width: `${size}px`, height: `${size}px`, left: table.x, top: table.y, touchAction: 'none' }}>
                     <div className={`absolute inset-[30px] rounded-full border-4 shadow-sm flex items-center justify-center z-0 transition-colors flex-col gap-1 ${isSelected ? 'ring-2 ring-blue-500 border-blue-400 bg-blue-50' : ''} ${tableGuests.length >= table.capacity ? 'bg-slate-100 border-red-200' : 'bg-white/90 backdrop-blur-sm border-slate-300 group-hover:border-blue-300'}`}>
                         <div className="text-center p-2 pointer-events-none select-none">
                             <div className="font-bold text-slate-700 text-lg leading-tight">{table.name}</div>
@@ -167,7 +167,7 @@
                         const mealStyle = guest ? getMealStyle(guest.meal) : { bg: 'bg-slate-50', text: 'text-slate-300', border: 'border-slate-200 dashed' };
                         const isAssignTarget = !guest && assigningGuest;
                         return (
-                            <div key={i} onDragOver={handleDragOver} onDrop={(e) => handleDropSeat(e, table.id, i)} className={`absolute w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold border-2 shadow-sm z-10 transition-all ${guest ? 'cursor-grab hover:scale-110 hover:z-20' : 'hover:border-blue-400'} ${isAssignTarget ? 'border-blue-400 bg-blue-50 animate-pulse cursor-pointer' : `${mealStyle.bg} ${mealStyle.text} ${mealStyle.border}`}`} style={{ transform: `translate(${x}px, ${y}px)` }} draggable={!!guest} onDragStart={(e) => { if(guest) { e.stopPropagation(); handleDragStart(e, guest.id); }}} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); if (assigningGuest && !guest) { moveGuest(assigningGuest.id, table.id, i); setAssigningGuest(null); } else if (guest) setSelectedGuest(guest); }} title={guest ? `${guest.name} (${getMealLabel(guest.meal)})` : (assigningGuest ? `Place ${assigningGuest.name} here` : `Seat ${i+1} (Empty)`)}>
+                            <div key={i} onDragOver={handleDragOver} onDrop={(e) => handleDropSeat(e, table.id, i)} className={`absolute w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold border-2 shadow-sm z-10 transition-all ${guest ? 'cursor-grab hover:scale-110 hover:z-20' : 'hover:border-blue-400'} ${isAssignTarget ? 'border-blue-400 bg-blue-50 animate-pulse cursor-pointer' : `${mealStyle.bg} ${mealStyle.text} ${mealStyle.border}`}`} style={{ transform: `translate(${x}px, ${y}px)` }} draggable={!!guest} onDragStart={(e) => { if(guest) { e.stopPropagation(); handleDragStart(e, guest.id); }}} onTouchStart={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); if (assigningGuest && !guest) { moveGuest(assigningGuest.id, table.id, i); setAssigningGuest(null); } else if (guest) setSelectedGuest(guest); }} title={guest ? `${guest.name} (${getMealLabel(guest.meal)})` : (assigningGuest ? `Place ${assigningGuest.name} here` : `Seat ${i+1} (Empty)`)}>
                                 {guest ? <span className="seat-enter">{getInitials(guest.name)}</span> : <span className={isAssignTarget ? 'text-blue-400' : 'opacity-50'}>{i + 1}</span>}
                             </div>
                         );
@@ -176,7 +176,7 @@
             );
         };
 
-        const RectTable = ({ table, guests, handleDragOver, handleDropTable, handleDropSeat, handleDragStart, setSelectedGuest, onTableMouseDown, isSelected, onResizeStart, updateTableCapacity, onRotateStart, assigningGuest, setAssigningGuest, moveGuest }) => {
+        const RectTable = ({ table, guests, handleDragOver, handleDropTable, handleDropSeat, handleDragStart, setSelectedGuest, onTableMouseDown, isSelected, onResizeStart, updateTableCapacity, onRotateStart, assigningGuest, setAssigningGuest, moveGuest, onTableTouchStart }) => {
             const tableGuests = guests.filter(g => g.tableId === table.id);
             const seatDims = useMemo(() => {
                 const w = table.width || 400; const h = table.height || 220;
@@ -186,7 +186,7 @@
             }, [table.width, table.height, table.capacity]);
 
             return (
-                <div onDragOver={handleDragOver} onDrop={(e) => handleDropTable(e, table.id)} onMouseDown={(e) => onTableMouseDown(e, table.id, table.x, table.y)} className={`absolute bg-white/90 backdrop-blur-sm rounded-lg border-2 shadow-sm transition-colors flex flex-col items-center p-6 cursor-move-table group ${isSelected ? 'ring-2 ring-blue-500 border-blue-400 z-40 bg-blue-50' : 'border-slate-300 hover:border-blue-300 z-10'}`} style={{ left: table.x, top: table.y, width: `${table.width || 400}px`, height: `${table.height || 220}px`, transform: `rotate(${table.rotation || 0}deg)`, touchAction: 'none' }}>
+                <div onDragOver={handleDragOver} onDrop={(e) => handleDropTable(e, table.id)} onMouseDown={(e) => onTableMouseDown(e, table.id, table.x, table.y)} onTouchStart={(e) => { if (e.touches.length === 1 && !assigningGuest) { e.stopPropagation(); onTableTouchStart(e, table.id); } }} className={`absolute bg-white/90 backdrop-blur-sm rounded-lg border-2 shadow-sm transition-colors flex flex-col items-center p-6 cursor-move-table group ${isSelected ? 'ring-2 ring-blue-500 border-blue-400 z-40 bg-blue-50' : 'border-slate-300 hover:border-blue-300 z-10'}`} style={{ left: table.x, top: table.y, width: `${table.width || 400}px`, height: `${table.height || 220}px`, transform: `rotate(${table.rotation || 0}deg)`, touchAction: 'none' }}>
                     <div className="absolute -top-4 bg-slate-800 text-white px-2 py-1 rounded-full text-xs font-bold shadow-md pointer-events-auto select-none flex items-center gap-2" onMouseDown={e => e.stopPropagation()}>
                         <span>{table.name} ({tableGuests.length}/{table.capacity})</span>
                         <TableCapacityControls capacity={table.capacity} onUpdate={(val) => updateTableCapacity(table.id, val)} />
@@ -197,7 +197,7 @@
                             const mealStyle = guest ? getMealStyle(guest.meal) : { bg: 'bg-slate-50', text: 'text-slate-300', border: 'border-slate-200 dashed' };
                             const isAssignTarget = !guest && assigningGuest;
                             return (
-                                <div key={i} onDragOver={handleDragOver} onDrop={(e) => handleDropSeat(e, table.id, i)} draggable={!!guest} onDragStart={(e) => { if (guest) { e.stopPropagation(); handleDragStart(e, guest.id); }}} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); if (assigningGuest && !guest) { moveGuest(assigningGuest.id, table.id, i); setAssigningGuest(null); } else if (guest) setSelectedGuest(guest); }} className={`rounded-full font-semibold border flex items-center justify-center transition-all cursor-pointer relative pointer-events-auto ${isAssignTarget ? 'border-blue-400 bg-blue-50 animate-pulse' : `${mealStyle.bg} ${mealStyle.text} ${mealStyle.border}`} ${!guest ? 'hover:border-blue-400' : 'hover:scale-105 shadow-sm'}`} style={{ width: seatDims.width, height: seatDims.height, fontSize: seatDims.fontSize, transform: `rotate(-${table.rotation || 0}deg)` }} title={guest ? guest.meal : (assigningGuest ? `Place ${assigningGuest.name} here` : "Empty Slot")}>
+                                <div key={i} onDragOver={handleDragOver} onDrop={(e) => handleDropSeat(e, table.id, i)} draggable={!!guest} onDragStart={(e) => { if (guest) { e.stopPropagation(); handleDragStart(e, guest.id); }}} onTouchStart={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); if (assigningGuest && !guest) { moveGuest(assigningGuest.id, table.id, i); setAssigningGuest(null); } else if (guest) setSelectedGuest(guest); }} className={`rounded-full font-semibold border flex items-center justify-center transition-all cursor-pointer relative pointer-events-auto ${isAssignTarget ? 'border-blue-400 bg-blue-50 animate-pulse' : `${mealStyle.bg} ${mealStyle.text} ${mealStyle.border}`} ${!guest ? 'hover:border-blue-400' : 'hover:scale-105 shadow-sm'}`} style={{ width: seatDims.width, height: seatDims.height, fontSize: seatDims.fontSize, transform: `rotate(-${table.rotation || 0}deg)` }} title={guest ? guest.meal : (assigningGuest ? `Place ${assigningGuest.name} here` : "Empty Slot")}>
                                     {guest ? <span className="truncate max-w-[90%] px-0.5">{getInitials(guest.name)}</span> : <span className={isAssignTarget ? 'text-blue-400' : 'opacity-30'}>{i+1}</span>}
                                 </div>
                             )
@@ -526,6 +526,7 @@
             const [isPanning, setIsPanning] = useState(false);
             const [panStart, setPanStart] = useState({ x: 0, y: 0 });
             const pinchRef = useRef(null);
+            const canvasTouchStartRef = useRef(null); // tracks touch start pos to detect tap vs pan
             
             // Responsive + assign state
             const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
@@ -727,6 +728,14 @@
 
             const handleResizeStart = (e, id) => { e.preventDefault(); e.stopPropagation(); const t = tables.find(x => x.id === id); if (t) setResizingTable({ id, startX: e.clientX, startY: e.clientY, startW: t.width || 400, startH: t.height || 220, rotation: t.rotation || 0 }); };
             const handleRotateStart = (e, id) => { e.preventDefault(); e.stopPropagation(); const t = tables.find(x => x.id === id); if (!t) return; const cx = t.x + (t.width||400)/2, cy = t.y + (t.height||220)/2; setRotatingTable({ id, cx, cy, startRotation: t.rotation || 0, startAngle: Math.atan2(e.clientY - cy, e.clientX - cx)*180/Math.PI }); };
+
+            const handleTableTouchStart = (e, id) => {
+                const touch = e.touches[0];
+                const next = new Set([id]);
+                setSelectedTableIds(next);
+                const t = tables.find(x => x.id === id);
+                if (t) setMovingTable({ id, startX: touch.clientX, startY: touch.clientY, initialPositions: { [id]: { x: t.x, y: t.y } } });
+            };
             
             const handleBgMouseDown = (e) => {
                 if (e.button !== 0) return; e.preventDefault();
@@ -758,8 +767,22 @@
                     }
                     setMovingTable(null); setResizingTable(null); setRotatingTable(null);
                 };
+                // Touch move/end for table dragging (touch start is on the table element itself)
+                const touchMove = (e) => {
+                    if (movingTable && e.touches.length === 1) {
+                        const t = e.touches[0];
+                        const dx = (t.clientX - movingTable.startX) / viewTransform.scale;
+                        const dy = (t.clientY - movingTable.startY) / viewTransform.scale;
+                        setTables(ts => ts.map(tbl => movingTable.initialPositions[tbl.id] ? { ...tbl, x: movingTable.initialPositions[tbl.id].x + dx, y: movingTable.initialPositions[tbl.id].y + dy } : tbl));
+                    }
+                };
+                const touchEnd = () => { setMovingTable(null); };
                 window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
-                return () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
+                window.addEventListener('touchmove', touchMove, { passive: true }); window.addEventListener('touchend', touchEnd);
+                return () => {
+                    window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up);
+                    window.removeEventListener('touchmove', touchMove); window.removeEventListener('touchend', touchEnd);
+                };
             }, [movingTable, resizingTable, rotatingTable, selectionBox, tables, selectedTableIds, roundTableSize, viewTransform, isPanning, panStart]);
 
             const handleBgDragOver = (e) => { if (e.dataTransfer.types && Array.from(e.dataTransfer.types).includes("Files")) { e.preventDefault(); setIsDragOverBg(true); } };
@@ -782,6 +805,7 @@
                         } else if (e.touches.length === 1) {
                             pinchRef.current = null;
                             setIsPanning(true);
+                            canvasTouchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
                             setPanStart({ x: e.touches[0].clientX - viewTransform.x, y: e.touches[0].clientY - viewTransform.y });
                         }
                     }}
@@ -792,15 +816,27 @@
                             const newDist = Math.hypot(dx, dy);
                             const newScale = Math.min(Math.max(0.1, pinchRef.current.startScale * (newDist / pinchRef.current.dist)), 5);
                             setViewTransform(v => ({ ...v, scale: newScale }));
-                        } else if (isPanning && e.touches.length === 1) {
+                        } else if (isPanning && !movingTable && e.touches.length === 1) {
                             setViewTransform(v => ({ ...v, x: e.touches[0].clientX - panStart.x, y: e.touches[0].clientY - panStart.y }));
                         }
                     }}
-                    onTouchEnd={e => { if (e.touches.length < 2) pinchRef.current = null; if (e.touches.length === 0) setIsPanning(false); }}>
+                    onTouchEnd={e => {
+                        if (e.touches.length < 2) pinchRef.current = null;
+                        if (e.touches.length === 0) {
+                            setIsPanning(false);
+                            // Tap on empty canvas (no table was touched) → deselect all tables
+                            const start = canvasTouchStartRef.current;
+                            const ct = e.changedTouches[0];
+                            if (start && ct && Math.hypot(ct.clientX - start.x, ct.clientY - start.y) < 8) {
+                                setSelectedTableIds(new Set());
+                            }
+                            canvasTouchStartRef.current = null;
+                        }
+                    }}>
                     <div id="floorplan-inner" onMouseDown={handleBgMouseDown} className={`relative transition-transform origin-top-left ${toolMode === 'pan' ? (isPanning ? 'cursor-grabbing' : 'cursor-grab') : 'cursor-default'}`} style={{ width: bgImage ? `${bgImageDims.width * bgScale}px` : '3000px', height: bgImage ? `${bgImageDims.height * bgScale}px` : '3000px', transform: `translate(${viewTransform.x}px, ${viewTransform.y}px) scale(${viewTransform.scale})`, backgroundImage: bgImage ? `url(${bgImage})` : 'none', backgroundSize: '100% 100%', backgroundRepeat: 'no-repeat', backgroundColor: isDragOverBg ? '#e2e8f0' : (bgImage ? 'transparent' : '#f1f5f9') }}>
                         {!bgImage && <div className="absolute inset-0 flex flex-col items-center justify-center text-slate-400 opacity-20"><Icon name="Image" size={96} className="mb-4"/><p className="font-bold text-2xl">Drag floor plan image here</p></div>}
                         {selectionBox && <div className="absolute border-2 border-blue-500 bg-blue-200/30 z-50 pointer-events-none select-box-overlay" style={{ left: Math.min(selectionBox.startX, selectionBox.currentX), top: Math.min(selectionBox.startY, selectionBox.currentY), width: Math.abs(selectionBox.currentX-selectionBox.startX), height: Math.abs(selectionBox.currentY-selectionBox.startY) }} />}
-                        {tables.map(table => <TableWrapper key={table.id} table={table} guests={guests} handleDragOver={handleDragOver} handleDropTable={handleDropTable} handleDropSeat={handleDropSeat} handleDragStart={handleDragStart} setSelectedGuest={setSelectedGuest} onTableMouseDown={handleTableMouseDown} isSelected={selectedTableIds.has(table.id)} size={roundTableSize} onResizeStart={handleResizeStart} onRotateStart={handleRotateStart} updateTableCapacity={updateTableCapacity} assigningGuest={assigningGuest} setAssigningGuest={setAssigningGuest} moveGuest={moveGuest} />)}
+                        {tables.map(table => <TableWrapper key={table.id} table={table} guests={guests} handleDragOver={handleDragOver} handleDropTable={handleDropTable} handleDropSeat={handleDropSeat} handleDragStart={handleDragStart} setSelectedGuest={setSelectedGuest} onTableMouseDown={handleTableMouseDown} onTableTouchStart={handleTableTouchStart} isSelected={selectedTableIds.has(table.id)} size={roundTableSize} onResizeStart={handleResizeStart} onRotateStart={handleRotateStart} updateTableCapacity={updateTableCapacity} assigningGuest={assigningGuest} setAssigningGuest={setAssigningGuest} moveGuest={moveGuest} />)}
                         {isDragOverBg && <div className="absolute inset-0 bg-blue-500/10 border-4 border-blue-400 border-dashed z-50 pointer-events-none flex items-center justify-center"><div className="bg-blue-500 text-white px-6 py-3 rounded-full font-bold shadow-lg">Drop Image to Set Background</div></div>}
                     </div>
                 </div>
@@ -845,10 +881,6 @@
                                             </div>
                                         )}
                                         <div className="flex items-center gap-2 px-3 py-1.5 bg-white border-b border-slate-200 shrink-0 overflow-x-auto">
-                                            <div className="flex bg-slate-100 rounded p-0.5 border shrink-0">
-                                                <button onClick={() => setToolMode('select')} className={`p-1 rounded ${toolMode === 'select' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`} title="Select"><Icon name="MousePointer" size={14}/></button>
-                                                <button onClick={() => setToolMode('pan')} className={`p-1 rounded ${toolMode === 'pan' ? 'bg-white shadow text-blue-600' : 'text-slate-500'}`} title="Pan"><Icon name="Hand" size={14}/></button>
-                                            </div>
                                             <div className="flex items-center gap-1 bg-slate-100 rounded p-0.5 border shrink-0">
                                                 <button onClick={handleZoomOut} className="p-1 hover:bg-white rounded text-slate-500"><Icon name="Minus" size={12}/></button>
                                                 <span className="text-[10px] font-mono w-8 text-center">{Math.round(viewTransform.scale * 100)}%</span>
