@@ -3,459 +3,512 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Alex Manescu - Projects</title>
-  <meta name="description" content="Project directory for Alex Manescu.">
-  <link rel="icon" type="image/png" sizes="32x32" href="../images/favicon.png">
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1FA90;</text></svg>">
-  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+  <title>[BETA] projects_repo · Alex Manescu Dev</title>
+  <meta name="description" content="Development staging area — Alex Manescu projects.">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#x1F6E0;</text></svg>">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,700;1,400&display=swap" rel="stylesheet">
   <style>
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
     :root {
-      --fg: #1a1a1a;
-      --fg-muted: #5a5a5a;
-      --fg-subtle: #8a8a8a;
-      --bg: #f4f1ec;
-      --bg-warm: #eae5dc;
-      --accent: #c44b2b;
-      --accent-hover: #a33d23;
-      --accent-glow: rgba(196, 75, 43, 0.12);
-      --font-display: 'DM Serif Display', Georgia, serif;
-      --font-body: 'Instrument Sans', system-ui, sans-serif;
-      --font-mono: 'JetBrains Mono', monospace;
-      --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+      --bg:         #0d1117;
+      --surface:    #161b22;
+      --raised:     #21262d;
+      --border:     #30363d;
+      --fg:         #e6edf3;
+      --fg-muted:   #8b949e;
+      --fg-subtle:  #6e7681;
+      --green:      #3fb950;
+      --yellow:     #d29922;
+      --yellow-dim: rgba(210, 153, 34, 0.08);
+      --cyan:       #79c0ff;
+      --red:        #f85149;
+      --red-dim:    rgba(248, 81, 73, 0.1);
+      --purple:     #d2a8ff;
+      --font:       'JetBrains Mono', 'Cascadia Code', 'Fira Code', monospace;
     }
 
-    html { font-size: 16px; -webkit-font-smoothing: antialiased; }
+    html { font-size: 15px; -webkit-font-smoothing: antialiased; }
 
     body {
-      font-family: var(--font-body);
+      font-family: var(--font);
       background: var(--bg);
       color: var(--fg);
       min-height: 100vh;
-      overflow-x: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 3rem 1.5rem 4rem;
     }
 
-    body::before {
-      content: '';
-      position: fixed;
-      inset: 0;
-      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
-      pointer-events: none;
-      z-index: 9999;
-    }
-
-    ::selection { background: var(--accent); color: #fff; }
-
-    .page-wrapper {
-      max-width: 860px;
-      margin: 0 auto;
-      padding: 3rem 2rem 4rem;
-    }
-
-    /* --- Breadcrumb --- */
-    .breadcrumb {
-      font-family: var(--font-mono);
-      font-size: 0.72rem;
-      color: var(--fg-subtle);
-      margin-bottom: 2.5rem;
-      letter-spacing: 0.03em;
-      opacity: 0;
-      animation: fadeSlideDown 0.8s var(--ease-out-expo) 0.1s forwards;
-    }
-    .breadcrumb a {
-      color: var(--fg-subtle);
-      text-decoration: none;
-      transition: color 0.3s;
-    }
-    .breadcrumb a:hover { color: var(--accent); }
-    .breadcrumb .sep { margin: 0 0.4rem; opacity: 0.4; }
-
-    /* --- Header --- */
-    .projects-header {
-      margin-bottom: 2.5rem;
-      opacity: 0;
-      animation: fadeSlideUp 1s var(--ease-out-expo) 0.2s forwards;
-    }
-    .projects-header h1 {
-      font-family: var(--font-display);
-      font-size: clamp(2rem, 4.5vw, 3rem);
-      font-weight: 400;
-      letter-spacing: -0.02em;
-      margin-bottom: 0.5rem;
-    }
-    .projects-header h1 em {
-      font-style: italic;
-      color: var(--accent);
-    }
-    .projects-header p {
-      font-family: var(--font-mono);
-      font-size: 0.78rem;
-      color: var(--fg-muted);
-      line-height: 1.6;
-    }
-
-    /* --- Explorer Window --- */
-    .explorer {
-      background: #fff;
-      border: 1px solid rgba(0,0,0,0.08);
+    /* ── Terminal window ──────────────────────────── */
+    .term-window {
+      width: 100%;
+      max-width: 820px;
+      background: var(--surface);
+      border: 1px solid var(--border);
       border-radius: 10px;
       overflow: hidden;
-      box-shadow: 0 4px 24px rgba(0,0,0,0.06);
-      opacity: 0;
-      animation: fadeSlideUp 1s var(--ease-out-expo) 0.4s forwards;
+      box-shadow:
+        0 0 0 1px rgba(255,255,255,0.04),
+        0 24px 64px rgba(0,0,0,0.65);
+      animation: fadeIn 0.65s ease forwards;
     }
 
-    .explorer__bar {
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(14px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Title bar ────────────────────────────────── */
+    .term-titlebar {
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 10px 14px;
-      background: #f8f7f5;
-      border-bottom: 1px solid rgba(0,0,0,0.06);
+      padding: 11px 16px;
+      background: var(--raised);
+      border-bottom: 1px solid var(--border);
     }
-    .explorer__dot {
-      width: 10px;
-      height: 10px;
-      border-radius: 50%;
-    }
-    .explorer__dot--red { background: #ff5f57; }
-    .explorer__dot--yellow { background: #ffbd2e; }
-    .explorer__dot--green { background: #28c840; }
 
-    .explorer__path {
+    .dot {
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .dot--red    { background: #ff5f57; }
+    .dot--yellow { background: #ffbd2e; }
+    .dot--green  { background: #28c840; }
+
+    .term-title {
       flex: 1;
       text-align: center;
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
+      font-size: 0.72rem;
       color: var(--fg-subtle);
-      letter-spacing: 0.02em;
+      letter-spacing: 0.03em;
     }
 
-    .explorer__body {
-      padding: 0.5rem 0;
+    .branch-pill {
+      font-size: 0.62rem;
+      color: var(--purple);
+      background: rgba(210, 168, 255, 0.08);
+      border: 1px solid rgba(210, 168, 255, 0.2);
+      padding: 2px 8px;
+      border-radius: 20px;
+      letter-spacing: 0.04em;
     }
 
-    /* --- Folder Row --- */
-    .folder-row {
+    /* ── Terminal body ────────────────────────────── */
+    .term-body {
+      padding: 1.4rem 1.6rem 1.8rem;
+      line-height: 1.75;
+    }
+
+    /* ── Prompt line ──────────────────────────────── */
+    .prompt {
       display: flex;
-      align-items: center;
-      gap: 1rem;
-      padding: 1rem 1.5rem;
-      cursor: pointer;
-      transition: background 0.2s ease;
-      text-decoration: none;
-      color: var(--fg);
-      border-bottom: 1px solid rgba(0,0,0,0.03);
-      position: relative;
+      flex-wrap: wrap;
+      align-items: baseline;
+      gap: 0;
+      font-size: 0.82rem;
+      margin-bottom: 0.1rem;
     }
-    .folder-row:last-child { border-bottom: none; }
-    .folder-row:hover { background: rgba(196, 75, 43, 0.04); }
-    .folder-row:hover .folder-row__icon { transform: scale(1.08); }
+    .p-user   { color: var(--green); }
+    .p-at     { color: var(--fg-muted); }
+    .p-host   { color: var(--cyan); }
+    .p-colon  { color: var(--fg-subtle); }
+    .p-path   { color: var(--fg); }
+    .p-git    { color: var(--purple); margin: 0 0.45rem; }
+    .p-dollar { color: var(--yellow); }
+    .p-cmd    { color: var(--fg); margin-left: 0.5rem; }
 
-    .folder-row__icon {
-      font-size: 1.8rem;
-      flex-shrink: 0;
-      transition: transform 0.3s var(--ease-out-expo);
-      width: 40px;
-      text-align: center;
-    }
-
-    .folder-row__info { flex: 1; min-width: 0; }
-
-    .folder-row__name {
-      font-family: var(--font-body);
-      font-size: 0.95rem;
-      font-weight: 600;
-      margin-bottom: 0.15rem;
-    }
-
-    .folder-row__desc {
+    /* ── Terminal output ──────────────────────────── */
+    .term-out {
       font-size: 0.78rem;
       color: var(--fg-muted);
-      line-height: 1.45;
+      margin-bottom: 1.3rem;
+      padding-left: 0.05rem;
     }
+    .term-out .dim { color: var(--fg-subtle); }
 
-    .folder-row__meta {
-      font-family: var(--font-mono);
-      font-size: 0.65rem;
-      color: var(--fg-subtle);
-      text-transform: uppercase;
+    /* ── Warning box ──────────────────────────────── */
+    .warn-box {
+      background: var(--yellow-dim);
+      border: 1px solid rgba(210, 153, 34, 0.22);
+      border-left: 3px solid var(--yellow);
+      border-radius: 4px;
+      padding: 0.85rem 1rem;
+      margin: 0.2rem 0 1.4rem;
+      font-size: 0.76rem;
+    }
+    .warn-box .w-title {
+      color: var(--yellow);
+      font-weight: 700;
       letter-spacing: 0.06em;
-      flex-shrink: 0;
-      text-align: right;
+      margin-bottom: 0.4rem;
+    }
+    .warn-box .w-line { color: rgba(210, 153, 34, 0.75); }
+    .warn-box .w-val  { color: var(--yellow); }
+
+    /* ── Divider ──────────────────────────────────── */
+    .divider {
+      border: none;
+      border-top: 1px solid var(--border);
+      margin: 1.1rem 0;
     }
 
-    .folder-row__arrow {
+    /* ── Project tree ─────────────────────────────── */
+    .tree-header {
+      display: grid;
+      grid-template-columns: 1fr 76px 1fr;
+      gap: 1rem;
+      font-size: 0.66rem;
       color: var(--fg-subtle);
-      font-size: 1.1rem;
-      flex-shrink: 0;
-      transition: transform 0.3s var(--ease-out-expo), color 0.3s;
-    }
-    .folder-row:hover .folder-row__arrow {
-      transform: translateX(4px);
-      color: var(--accent);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0 0.5rem 0.5rem;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 0.2rem;
     }
 
-    /* --- Lock badge --- */
-    .folder-row__lock {
-      display: inline-block;
-      font-size: 0.6rem;
-      background: var(--bg-warm);
+    .project-tree { list-style: none; }
+
+    .tree-row {
+      display: grid;
+      grid-template-columns: 1fr 76px 1fr;
+      gap: 1rem;
+      align-items: center;
+      padding: 0.5rem 0.5rem;
+      border-radius: 5px;
+      text-decoration: none;
+      color: var(--fg);
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .tree-row:hover { background: rgba(255,255,255,0.04); }
+
+    .tree-name-cell {
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }
+    .tree-prefix {
       color: var(--fg-subtle);
+      margin-right: 0.4rem;
+      flex-shrink: 0;
+      user-select: none;
+    }
+    .tree-name {
+      color: var(--cyan);
+      font-size: 0.83rem;
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: color 0.15s;
+    }
+    .tree-row:hover .tree-name { color: #a5d6ff; }
+
+    .tree-badge {
+      font-size: 0.66rem;
+      font-weight: 700;
+      letter-spacing: 0.07em;
       padding: 2px 6px;
       border-radius: 3px;
-      margin-left: 0.5rem;
-      font-family: var(--font-mono);
-      letter-spacing: 0.04em;
-      vertical-align: middle;
+      text-align: center;
+      white-space: nowrap;
+    }
+    .tree-badge--active {
+      color: var(--green);
+      background: rgba(63, 185, 80, 0.1);
+      border: 1px solid rgba(63, 185, 80, 0.25);
+    }
+    .tree-badge--locked {
+      color: var(--red);
+      background: var(--red-dim);
+      border: 1px solid rgba(248, 81, 73, 0.28);
     }
 
-    /* --- Password Modal --- */
+    .tree-desc {
+      font-size: 0.76rem;
+      color: var(--fg-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      transition: color 0.15s;
+    }
+    .tree-row:hover .tree-desc { color: var(--fg); }
+
+    /* ── Cursor ───────────────────────────────────── */
+    .cursor-line {
+      margin-top: 1.3rem;
+      font-size: 0.82rem;
+    }
+    .cursor {
+      display: inline-block;
+      width: 9px;
+      height: 1em;
+      background: var(--fg);
+      vertical-align: text-bottom;
+      margin-left: 3px;
+      animation: blink 1.1s step-end infinite;
+    }
+    @keyframes blink {
+      0%, 49% { opacity: 1; }
+      50%, 100% { opacity: 0; }
+    }
+
+    /* ── Footer ───────────────────────────────────── */
+    .page-footer {
+      margin-top: 1.5rem;
+      font-size: 0.67rem;
+      color: var(--fg-subtle);
+      text-align: center;
+    }
+    .page-footer a {
+      color: var(--fg-subtle);
+      text-decoration: none;
+      transition: color 0.2s;
+    }
+    .page-footer a:hover { color: var(--cyan); }
+    .page-footer .sep { margin: 0 0.5rem; opacity: 0.4; }
+
+    /* ── Password modal ───────────────────────────── */
     .pw-overlay {
       display: none;
       position: fixed;
       inset: 0;
-      background: rgba(0,0,0,0.4);
+      background: rgba(0,0,0,0.72);
       z-index: 1000;
       align-items: center;
       justify-content: center;
+      backdrop-filter: blur(4px);
     }
     .pw-overlay.active { display: flex; }
 
     .pw-modal {
-      background: #fff;
-      border-radius: 10px;
-      padding: 2rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-top: 2px solid var(--yellow);
+      border-radius: 8px;
+      padding: 1.8rem;
       max-width: 380px;
       width: 90%;
-      box-shadow: 0 16px 48px rgba(0,0,0,0.15);
-      text-align: center;
+      box-shadow: 0 24px 64px rgba(0,0,0,0.65);
     }
     .pw-modal h3 {
-      font-family: var(--font-body);
-      font-size: 1rem;
-      font-weight: 600;
+      font-size: 0.76rem;
+      font-weight: 700;
+      color: var(--yellow);
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
       margin-bottom: 0.3rem;
     }
     .pw-modal p {
-      font-size: 0.8rem;
+      font-size: 0.73rem;
       color: var(--fg-muted);
       margin-bottom: 1.2rem;
+      line-height: 1.55;
     }
     .pw-modal input[type="password"] {
       width: 100%;
-      padding: 0.65rem 0.9rem;
-      font-family: var(--font-mono);
+      padding: 0.6rem 0.8rem;
+      font-family: var(--font);
       font-size: 0.82rem;
-      border: 1px solid rgba(0,0,0,0.12);
-      border-radius: 6px;
-      outline: none;
       background: var(--bg);
-      transition: border-color 0.3s;
-      margin-bottom: 0.8rem;
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      color: var(--fg);
+      outline: none;
+      caret-color: var(--green);
+      transition: border-color 0.2s;
+      margin-bottom: 0.7rem;
     }
-    .pw-modal input[type="password"]:focus {
-      border-color: var(--accent);
-    }
-    .pw-modal .pw-error {
-      font-family: var(--font-mono);
-      font-size: 0.7rem;
-      color: var(--accent);
+    .pw-modal input[type="password"]::placeholder { color: var(--fg-subtle); }
+    .pw-modal input[type="password"]:focus { border-color: var(--yellow); }
+
+    .pw-error {
+      font-size: 0.69rem;
+      color: var(--red);
       margin-bottom: 0.6rem;
       display: none;
     }
     .pw-modal button {
       width: 100%;
       padding: 0.6rem;
-      background: var(--accent);
-      color: #fff;
+      font-family: var(--font);
+      font-size: 0.76rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
       border: none;
-      border-radius: 6px;
-      font-family: var(--font-body);
-      font-size: 0.85rem;
-      font-weight: 600;
+      border-radius: 5px;
       cursor: pointer;
-      transition: background 0.3s;
+      transition: background 0.2s, color 0.2s;
     }
-    .pw-modal button:hover { background: var(--accent-hover); }
-    .pw-modal .pw-cancel {
-      background: none;
-      color: var(--fg-subtle);
-      font-size: 0.75rem;
-      margin-top: 0.6rem;
-      font-weight: 400;
+    #pw-submit {
+      background: var(--yellow);
+      color: #000;
+      margin-bottom: 0.5rem;
     }
-    .pw-modal .pw-cancel:hover { color: var(--fg); background: none; }
+    #pw-submit:hover { background: #e8aa2a; }
+    .pw-cancel {
+      background: transparent !important;
+      color: var(--fg-subtle) !important;
+      border: 1px solid var(--border);
+      font-weight: 400 !important;
+    }
+    .pw-cancel:hover { color: var(--fg) !important; border-color: var(--fg-muted) !important; }
 
-    /* --- Footer --- */
-    .page-footer {
-      margin-top: 3rem;
-      padding-top: 2rem;
-      border-top: 1px solid rgba(0,0,0,0.06);
-      font-family: var(--font-mono);
-      font-size: 0.68rem;
-      color: var(--fg-subtle);
-      opacity: 0;
-      animation: fadeSlideUp 1s var(--ease-out-expo) 0.6s forwards;
-    }
-    .page-footer a {
-      color: var(--fg-subtle);
-      text-decoration: none;
-      transition: color 0.3s;
-    }
-    .page-footer a:hover { color: var(--accent); }
-
-    /* --- Animations --- */
-    @keyframes fadeSlideUp {
-      from { opacity: 0; transform: translateY(18px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    @keyframes fadeSlideDown {
-      from { opacity: 0; transform: translateY(-12px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-
-    @media (max-width: 600px) {
-      .page-wrapper { padding: 2rem 1.3rem 3rem; }
-      .folder-row { padding: 0.9rem 1.1rem; gap: 0.8rem; }
-      .folder-row__meta { display: none; }
+    /* ── Responsive ───────────────────────────────── */
+    @media (max-width: 580px) {
+      body { padding: 1.2rem 0.7rem 3rem; }
+      .term-body { padding: 1rem 1rem 1.4rem; }
+      .tree-header,
+      .tree-row { grid-template-columns: 1fr 66px; }
+      .tree-desc, .col-desc { display: none; }
     }
   </style>
 </head>
 <body>
 
-  <div class="page-wrapper">
+  <div class="term-window">
 
-    <!-- Breadcrumb -->
-    <nav class="breadcrumb">
-      <a href="../">~/alexmanescu.com</a><span class="sep">/</span><span>projects</span>
-    </nav>
-
-    <!-- Header -->
-    <div class="projects-header">
-      <h1><em>Projects</em></h1>
-      <p>Select a folder to open.</p>
+    <!-- Title bar -->
+    <div class="term-titlebar">
+      <span class="dot dot--red"></span>
+      <span class="dot dot--yellow"></span>
+      <span class="dot dot--green"></span>
+      <span class="term-title">zsh — ~/projects_repo/projects</span>
+      <span class="branch-pill">&#x239B; main</span>
     </div>
 
-    <!-- Explorer Window -->
-    <div class="explorer">
-      <div class="explorer__bar">
-        <span class="explorer__dot explorer__dot--red"></span>
-        <span class="explorer__dot explorer__dot--yellow"></span>
-        <span class="explorer__dot explorer__dot--green"></span>
-        <span class="explorer__path">~/projects/</span>
+    <!-- Terminal body -->
+    <div class="term-body">
+
+      <!-- Prompt 1: cat staging env -->
+      <div class="prompt">
+        <span class="p-user">alex</span><span class="p-at">@</span><span class="p-host">dev</span><span class="p-colon">:</span><span class="p-path">~/projects_repo/projects</span><span class="p-git">(main)</span><span class="p-dollar">$</span><span class="p-cmd">cat .env.staging</span>
       </div>
-      <div class="explorer__body">
+
+      <div class="warn-box">
+        <div class="w-title">&#9888;&#xFE0E;  STAGING / BETA ENVIRONMENT</div>
+        <div class="w-line">This index is intentionally different from production.</div>
+      </div>
+
+      <!-- Prompt 2: ls -->
+      <div class="prompt">
+        <span class="p-user">alex</span><span class="p-at">@</span><span class="p-host">dev</span><span class="p-colon">:</span><span class="p-path">~/projects_repo/projects</span><span class="p-git">(main)</span><span class="p-dollar">$</span><span class="p-cmd">ls -la ./</span>
+      </div>
+
+      <hr class="divider">
+
+      <!-- Column headers -->
+      <div class="tree-header">
+        <span>NAME</span>
+        <span>STATUS</span>
+        <span class="col-desc">DESCRIPTION</span>
+      </div>
+
+      <!-- Project list -->
+      <ul class="project-tree">
+
+        <li>
+          <a class="tree-row" data-href="MI/index.html">
+            <span class="tree-name-cell">
+              <span class="tree-prefix">&#x251C;&#x2500;&#x2500;</span>
+              <span class="tree-name">MI/</span>
+            </span>
+            <span class="tree-badge tree-badge--active">ACTIVE</span>
+            <span class="tree-desc">Mutual Industries</span>
+          </a>
+        </li>
+
+        <li>
+          <a class="tree-row" data-href="event_seating_tool/index.html">
+            <span class="tree-name-cell">
+              <span class="tree-prefix">&#x251C;&#x2500;&#x2500;</span>
+              <span class="tree-name">event_seating_tool/</span>
+            </span>
+            <span class="tree-badge tree-badge--active">ACTIVE</span>
+            <span class="tree-desc">Event Seating Tool</span>
+          </a>
+        </li>
+
+        <li>
+          <a class="tree-row" data-href="upc-audit/index.php" data-protected="true" data-pw="Welcome@23">
+            <span class="tree-name-cell">
+              <span class="tree-prefix">&#x2514;&#x2500;&#x2500;</span>
+              <span class="tree-name">upc-audit/</span>
+            </span>
+            <span class="tree-badge tree-badge--locked">LOCKED</span>
+            <span class="tree-desc">UPC Audit</span>
+          </a>
+        </li>
 
         <!--
           ============================================================
-          PROJECT ENTRIES
-          ============================================================
-          To add a new project, copy a folder-row block below.
+          To add a project, copy a <li> block above.
 
-          OPEN (no password):
-            data-href="FOLDER_NAME/index.html"
+          OPEN:
+            <a class="tree-row" data-href="FOLDER/index.html">
+            prefix: ├── on non-last rows, └── on last row
 
-          PASSWORD PROTECTED:
-            data-href="FOLDER_NAME/index.html"
-            data-protected="true"
-            data-pw="your_password_here"
-            Add the lock badge span inside folder-row__name
+          LOCKED:
+            add  data-protected="true"  data-pw="password"
+            change badge class to tree-badge--locked and text to LOCKED
 
-          To toggle protection on/off, just add or remove
-          data-protected and data-pw attributes.
           ============================================================
         -->
 
-        <a class="folder-row" data-href="MI/index.html">
-          <span class="folder-row__icon">&#x1F4C1;</span>
-          <div class="folder-row__info">
-            <div class="folder-row__name">Mutual Industries</div>
-            <div class="folder-row__desc">Digital operations, e-commerce integrations, and automation projects.</div>
-          </div>
-          <span class="folder-row__meta">Active</span>
-          <span class="folder-row__arrow">&rsaquo;</span>
-        </a>
+      </ul>
 
-        <a class="folder-row" data-href="event_seating_tool/index.html">
-          <span class="folder-row__icon">&#x1F4C1;</span>
-          <div class="folder-row__info">
-            <div class="folder-row__name">Event Seating Tool</div>
-            <div class="folder-row__desc">Interactive seating arrangement tool for event planning.</div>
-          </div>
-          <span class="folder-row__meta">Active</span>
-          <span class="folder-row__arrow">&rsaquo;</span>
-        </a>
-		
-        <a class="folder-row" data-href="upc-audit/index.php" data-protected="true" data-pw="Welcome@23">
-          <span class="folder-row__icon">&#x1F4C1;</span>
-          <div class="folder-row__info">
-            <div class="folder-row__name">UPC Audit <span class="folder-row__lock">&#x1F512; locked</span></div>
-            <div class="folder-row__desc">UPC code auditing tool</div>
-          </div>
-          <span class="folder-row__meta">Active</span>
-          <span class="folder-row__arrow">&rsaquo;</span>
-        </a>
+      <hr class="divider">
 
-        <!--
-          EXAMPLE: Password protected project (uncomment to use)
-
-        <a class="folder-row" data-href="secret_project/index.html" data-protected="true" data-pw="letmein">
-          <span class="folder-row__icon">&#x1F4C2;</span>
-          <div class="folder-row__info">
-            <div class="folder-row__name">Secret Project <span class="folder-row__lock">&#x1F512; locked</span></div>
-            <div class="folder-row__desc">A password-protected project.</div>
-          </div>
-          <span class="folder-row__meta">Private</span>
-          <span class="folder-row__arrow">&rsaquo;</span>
-        </a>
-        -->
-
+      <!-- Idle cursor -->
+      <div class="cursor-line">
+        <span class="p-user">alex</span><span class="p-at">@</span><span class="p-host">dev</span><span class="p-colon">:</span><span class="p-path">~/projects_repo/projects</span><span class="p-git">(main)</span><span class="p-dollar">$</span><span class="cursor"></span>
       </div>
-    </div>
 
-    <!-- Footer -->
-    <div class="page-footer">
-      <a href="../">&larr; back to alexmanescu.com</a>
     </div>
-
   </div>
 
-  <!-- Password Modal -->
+  <!-- Footer -->
+  <div class="page-footer">
+    <a href="../">&larr; back to alexmanescu.com</a>
+  </div>
+
+  <!-- Password modal -->
   <div class="pw-overlay" id="pw-overlay">
     <div class="pw-modal">
-      <h3>This project is locked</h3>
-      <p>Enter the password to continue.</p>
-      <div class="pw-error" id="pw-error">Incorrect password. Try again.</div>
-      <input type="password" id="pw-input" placeholder="password" autocomplete="off" spellcheck="false">
-      <button id="pw-submit">Open</button>
-      <button class="pw-cancel" id="pw-cancel">Cancel</button>
+      <h3>&#9888;&#xFE0E; Access Restricted</h3>
+      <p>This project is password protected.<br>Enter credentials to continue.</p>
+      <div class="pw-error" id="pw-error">// incorrect password &mdash; try again</div>
+      <input type="password" id="pw-input" placeholder="enter password..." autocomplete="off" spellcheck="false">
+      <button id="pw-submit">AUTHENTICATE</button>
+      <button class="pw-cancel" id="pw-cancel">cancel</button>
     </div>
   </div>
 
   <script>
     (function() {
-      var overlay = document.getElementById('pw-overlay');
-      var pwInput = document.getElementById('pw-input');
-      var pwError = document.getElementById('pw-error');
+      var overlay  = document.getElementById('pw-overlay');
+      var pwInput  = document.getElementById('pw-input');
+      var pwError  = document.getElementById('pw-error');
       var pwSubmit = document.getElementById('pw-submit');
       var pwCancel = document.getElementById('pw-cancel');
       var pendingHref = '';
-      var pendingPw = '';
+      var pendingPw   = '';
 
-      // Handle folder clicks
-      var rows = document.querySelectorAll('.folder-row');
-      rows.forEach(function(row) {
+      document.querySelectorAll('.tree-row').forEach(function(row) {
         row.addEventListener('click', function(e) {
           e.preventDefault();
-          var href = row.getAttribute('data-href');
+          var href        = row.getAttribute('data-href');
           var isProtected = row.getAttribute('data-protected') === 'true';
-          var pw = row.getAttribute('data-pw') || '';
+          var pw          = row.getAttribute('data-pw') || '';
 
           if (isProtected && pw) {
             pendingHref = href;
-            pendingPw = pw;
+            pendingPw   = pw;
             pwError.style.display = 'none';
             pwInput.value = '';
             overlay.classList.add('active');
@@ -466,7 +519,6 @@
         });
       });
 
-      // Submit password
       pwSubmit.addEventListener('click', function() {
         if (pwInput.value === pendingPw) {
           overlay.classList.remove('active');
@@ -478,19 +530,16 @@
         }
       });
 
-      // Enter key in password field
       pwInput.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') pwSubmit.click();
       });
 
-      // Cancel
       pwCancel.addEventListener('click', function() {
         overlay.classList.remove('active');
         pendingHref = '';
-        pendingPw = '';
+        pendingPw   = '';
       });
 
-      // Click outside modal to close
       overlay.addEventListener('click', function(e) {
         if (e.target === overlay) pwCancel.click();
       });
