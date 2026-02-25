@@ -106,7 +106,7 @@ $pending_count = $pdo->query("SELECT COUNT(*) FROM upc_lookups WHERE match_statu
         label { margin-right: 10px; font-weight: bold; }
         .form-row { margin-bottom: 15px; }
         .api-barcodelookup { background-color: #e3f2fd; }
-        .api-REDACTED { background-color: #f3e5f5; }
+        .api-upcitemdb { background-color: #f3e5f5; }
     </style>
 </head>
 <body>
@@ -159,7 +159,7 @@ $pending_count = $pdo->query("SELECT COUNT(*) FROM upc_lookups WHERE match_statu
             <select name="api_source" id="api_source" required>
                 <option value="">-- Select API Source --</option>
                 <option value="barcodelookup">Barcode Lookup</option>
-                <option value="REDACTED">UPC Item DB</option>
+                <option value="upcitemdb">UPC Item DB</option>
             </select>
         </div>
         
