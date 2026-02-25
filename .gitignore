@@ -5,3 +5,6 @@ upc-audit/.gitignore
 upc-audit/error_log
 deploy.ps1
 ssh-server.ps1
+.vsftp.json
+.vscode
+sftp.json
