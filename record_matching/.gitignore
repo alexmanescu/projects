@@ -11,3 +11,6 @@ sftp.json
 config.php
 README.md
 Cowork_Search_Prompts.md
+php\export
+uploads/
+exports/

@@ -6,7 +6,7 @@
  * Deploy to your webserver document root or a subdirectory.
  */
 
-require_once __DIR__ . '/includes/config.php';
+require_once __DIR__ . '/../includes/config.php';
 
 $db = getDB();
 $page = $_GET['page'] ?? 'dashboard';
