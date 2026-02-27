@@ -8,3 +8,7 @@ ssh-server.ps1
 .vsftp.json
 .vscode
 sftp.json
+MI_OFM prompt.md
+config.example.php
+schema.sql
+seed.sql

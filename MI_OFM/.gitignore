@@ -1,0 +1,18 @@
+# Database credentials - NEVER commit this
+config/config.php
+
+# PHP error logs
+*.log
+error_log
+
+# Editor temp files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Setup script - delete after first run
+public/setup.php
