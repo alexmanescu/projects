@@ -25,8 +25,20 @@ function getItemByUpc(string $upc): ?array
         return null;
     }
 
+    // Alias real column names in alexmane_upc_audit.upc_lookups to the
+    // standard keys used throughout the app, so downstream code never
+    // needs to know the underlying column names:
+    //   product_name  → description
+    //   size          → uom  (closest equivalent to unit-of-measure)
+    //   sage_itemcode → sku  (Sage item code — highest-priority identifier)
+    //   model         → model_number
     $stmt = getAuditDb()->prepare(
-        'SELECT upc, description, uom, part_number, model_number, sku
+        'SELECT upc,
+                product_name  AS description,
+                size          AS uom,
+                sage_itemcode AS sku,
+                model         AS model_number,
+                NULL          AS part_number
            FROM ' . AUDIT_TABLE . '
           WHERE upc = ?
           LIMIT 1'
