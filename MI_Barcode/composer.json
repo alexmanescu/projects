@@ -1,0 +1,12 @@
+{
+    "name": "mi/barcode",
+    "description": "MI Barcode — UPC lookup and label printing utility",
+    "type": "project",
+    "require": {
+        "php": ">=8.0",
+        "tecnickcom/tcpdf": "^6.7"
+    },
+    "config": {
+        "optimize-autoloader": true
+    }
+}

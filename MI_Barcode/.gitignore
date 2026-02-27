@@ -1,0 +1,18 @@
+# MI_Barcode — git ignore
+
+# Credentials — never commit
+config/config.php
+
+# Composer dependencies
+vendor/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*.idea/
+.vscode/
+
+# PHP temp / cache
+*.log
