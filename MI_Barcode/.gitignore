@@ -3,8 +3,9 @@
 # Credentials — never commit
 config/config.php
 
-# Composer dependencies
+# Dependencies (Composer vendor or manually downloaded libs)
 vendor/
+lib/
 
 # OS / editor noise
 .DS_Store

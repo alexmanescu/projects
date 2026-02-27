@@ -26,7 +26,7 @@
 
 declare(strict_types=1);
 
-require_once APP_ROOT . '/vendor/autoload.php';
+require_once APP_ROOT . '/lib/TCPDF-main/tcpdf.php';
 
 const MM_PER_INCH = 25.4;
 
