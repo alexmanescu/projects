@@ -172,15 +172,16 @@ function _renderLabel(
 
     // ── 1. Logo ───────────────────────────────────────────────────────────────
     if ($hasLogo) {
-        // Cap logo width at 60% of inner or 30 mm. Height=0 → auto aspect ratio.
+        // Constrain logo to fit within the reserved section height and 60% width.
         $maxLogoW = min($inner * 0.60, 30.0);
+        $maxLogoH = $logoSec - ($pad * 0.5); // leave a tiny gap below
         $pdf->Image(
             $logoPath, $ix, $cy,
-            $maxLogoW, 0,     // width, height (0 = auto)
-            'PNG', '', 'T',   // type, link, align
-            false, 300,       // resize, dpi
-            '', false, false, // x-link, fitbox, hidden
-            0, 'L'            // border, position
+            $maxLogoW, $maxLogoH, // explicit height so it never overruns
+            'PNG', '', 'T',       // type, link, align
+            true, 300,            // resize=true, dpi
+            '', false, false,     // x-link, fitbox, hidden
+            0, 'C'                // border, palign=center
         );
         $cy += $logoSec;
     }
