@@ -49,6 +49,7 @@ a:hover { text-decoration: underline; }
     top: 0;
     z-index: 100;
     box-shadow: 0 2px 8px rgba(0,0,0,.3);
+    overflow: hidden;
 }
 
 .app-header__inner {
@@ -68,9 +69,11 @@ a:hover { text-decoration: underline; }
 }
 
 .app-logo {
-    height: 36px;
+    height: 32px;
     width: auto;
+    max-width: 180px;
     display: block;
+    object-fit: contain;
 }
 
 .app-title {
