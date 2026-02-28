@@ -49,7 +49,10 @@ try {
 
 <header class="app-header">
     <div class="app-header__inner">
-        <span class="app-title"><?= e(APP_NAME) ?></span>
+        <div class="app-brand">
+            <img src="../assets/img/logo.png" alt="<?= e(APP_NAME) ?>" class="app-logo">
+            <span class="app-title"><?= e(APP_NAME) ?></span>
+        </div>
         <nav class="app-nav">
             <a href="index.php" class="nav-link nav-link--active">Lookup</a>
             <a href="profiles.php" class="nav-link">Label Profiles</a>
