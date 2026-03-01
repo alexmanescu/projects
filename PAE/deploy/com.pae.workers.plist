@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+    "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  PAE Background Workers — macOS launchd agent (Mac Mini deployment)
+
+  Installation:
+    1. Replace /path/to/PAE and YOUR_USERNAME with real values.
+    2. Copy to ~/Library/LaunchAgents/com.pae.workers.plist
+    3. Load:
+         launchctl load ~/Library/LaunchAgents/com.pae.workers.plist
+    4. Check status:
+         launchctl list | grep pae
+    5. Tail logs:
+         tail -f /path/to/PAE/logs/workers.log
+
+  Commands:
+    launchctl stop  com.pae.workers
+    launchctl start com.pae.workers
+    launchctl unload ~/Library/LaunchAgents/com.pae.workers.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.pae.workers</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/path/to/PAE/venv/bin/python</string>
+        <string>scripts/run_workers.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/path/to/PAE</string>
+
+    <!-- Restart automatically if the process exits -->
+    <key>KeepAlive</key>
+    <true/>
+
+    <!-- Wait 10 s before restarting on failure -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+
+    <!-- Start on login -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <!-- Environment — load vars not in .env (or set all here) -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+        <!-- Override any defaults needed at the OS level: -->
+        <!-- <key>DRY_RUN</key><string>false</string> -->
+    </dict>
+
+    <!-- Redirect stdout/stderr (workers also write to logs/workers.log) -->
+    <key>StandardOutPath</key>
+    <string>/path/to/PAE/logs/launchd-workers.log</string>
+    <key>StandardErrorPath</key>
+    <string>/path/to/PAE/logs/launchd-workers.log</string>
+</dict>
+</plist>

@@ -1,0 +1,60 @@
+# PAE Background Workers — systemd service unit
+#
+# Installation (Mac Mini running macOS with systemd via Homebrew, or Linux):
+#
+#   1. Copy to /etc/systemd/system/pae-workers.service
+#   2. Replace placeholders:
+#        YOUR_USERNAME   — the OS user that owns the project (e.g. alex)
+#        /path/to/PAE   — absolute path to the PAE project root
+#   3. Enable and start:
+#        sudo systemctl daemon-reload
+#        sudo systemctl enable pae-workers
+#        sudo systemctl start pae-workers
+#
+# For macOS (launchd) see deploy/pae-workers.plist instead.
+#
+# Useful commands:
+#   sudo systemctl status  pae-workers
+#   sudo systemctl restart pae-workers
+#   sudo journalctl -u pae-workers -f          # live log tail
+#   sudo journalctl -u pae-workers --since today
+
+[Unit]
+Description=PAE (Propaganda Arbitrage Engine) Background Workers
+Documentation=https://github.com/yourrepo/PAE
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=YOUR_USERNAME
+Group=YOUR_USERNAME
+
+WorkingDirectory=/path/to/PAE
+
+# Use the virtualenv Python; adjust if using system Python or conda
+Environment="PATH=/path/to/PAE/venv/bin:/usr/local/bin:/usr/bin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+
+# Load .env file for secrets — systemd EnvironmentFile requires KEY=VALUE lines
+EnvironmentFile=-/path/to/PAE/.env
+
+ExecStart=/path/to/PAE/venv/bin/python scripts/run_workers.py
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# Logging (stdout + stderr go to journald; workers.log captures duplicates)
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pae-workers
+
+# Resource limits (optional — adjust for your machine)
+# LimitNOFILE=65536
+# MemoryMax=2G
+
+[Install]
+WantedBy=multi-user.target
