@@ -151,6 +151,11 @@ class LLMSynthesizer:
         claude_model: str | None = None,
     ) -> None:
         self._ollama_url = (ollama_url or settings.ollama_base_url).rstrip("/")
+        self._ollama_fallback_url = (
+            settings.ollama_fallback_url.rstrip("/")
+            if settings.ollama_fallback_url
+            else None
+        )
         self._ollama_model = ollama_model or settings.ollama_model
         self._claude_key = claude_key or settings.anthropic_api_key
         self._claude_model = claude_model or settings.claude_model
@@ -159,6 +164,7 @@ class LLMSynthesizer:
         self._http.headers.update({"Content-Type": "application/json"})
 
         self._ollama_available: bool = False
+        self._ollama_fallback_available: bool = False
         self._claude_available: bool = False
         self._check_availability()
 
@@ -260,7 +266,7 @@ class LLMSynthesizer:
 
     def _check_availability(self) -> None:
         """Probe backends and cache results.  Never raises."""
-        # ── Ollama ────────────────────────────────────────────────────────────
+        # ── Ollama primary ────────────────────────────────────────────────────
         try:
             resp = self._http.get(
                 f"{self._ollama_url}/api/version",
@@ -269,17 +275,31 @@ class LLMSynthesizer:
             self._ollama_available = resp.status_code == 200
         except Exception as exc:
             self._ollama_available = False
-            logger.debug("Ollama not reachable at %s: %s", self._ollama_url, exc)
+            logger.debug("Ollama primary not reachable at %s: %s", self._ollama_url, exc)
+
+        # ── Ollama fallback (e.g. Windows GPU) ────────────────────────────────
+        if self._ollama_fallback_url:
+            try:
+                resp = self._http.get(
+                    f"{self._ollama_fallback_url}/api/version",
+                    timeout=_OLLAMA_PING_TIMEOUT,
+                )
+                self._ollama_fallback_available = resp.status_code == 200
+            except Exception as exc:
+                self._ollama_fallback_available = False
+                logger.debug("Ollama fallback not reachable at %s: %s", self._ollama_fallback_url, exc)
 
         # ── Claude ────────────────────────────────────────────────────────────
         self._claude_available = bool(self._claude_key)
 
         logger.info(
-            "LLM backends — ollama: %s (%s/%s)  claude: %s",
+            "LLM backends — ollama_primary: %s (%s)  ollama_fallback: %s (%s)  claude: %s  model: %s",
             "✓" if self._ollama_available else "✗",
             self._ollama_url,
-            self._ollama_model,
+            "✓" if self._ollama_fallback_available else "✗" if self._ollama_fallback_url else "n/a",
+            self._ollama_fallback_url or "not configured",
             "✓" if self._claude_available else "✗ (no API key)",
+            self._ollama_model,
         )
 
     # ── Routing ───────────────────────────────────────────────────────────────
@@ -295,6 +315,11 @@ class LLMSynthesizer:
     ) -> LLMResponse:
         """Call primary backend with retries; try fallback on failure.
 
+        For the ``"ollama"`` backend the routing order is:
+        1. Primary Ollama URL  (``OLLAMA_BASE_URL``)
+        2. Fallback Ollama URL (``OLLAMA_FALLBACK_URL``, e.g. Windows GPU)
+        3. Claude (if configured as the fallback backend)
+
         Args:
             primary:  ``"ollama"`` or ``"claude"``.
             fallback: ``"ollama"``, ``"claude"``, or ``None`` (no fallback).
@@ -306,31 +331,53 @@ class LLMSynthesizer:
         last_exc: Exception | None = None
 
         for backend_name, is_primary in backends:
-            available = (
-                self._ollama_available if backend_name == "ollama"
-                else self._claude_available
-            )
-            if not available:
-                logger.debug("%s: skipping unavailable backend %s", context, backend_name)
-                continue
+            if backend_name == "ollama":
+                # Build ordered list of Ollama URLs to try
+                ollama_urls: list[tuple[str, bool]] = []
+                if self._ollama_available:
+                    ollama_urls.append((self._ollama_url, True))
+                if self._ollama_fallback_available and self._ollama_fallback_url:
+                    ollama_urls.append((self._ollama_fallback_url, False))
 
-            call_fn = self._call_ollama if backend_name == "ollama" else self._call_claude
-            try:
-                resp = self._call_with_retry(
-                    call_fn,
-                    prompt=prompt,
-                    temperature=temperature,
-                    max_tokens=max_tokens,
-                )
-                if not is_primary:
-                    logger.info("%s: primary failed, used fallback %s", context, backend_name)
-                return resp
-            except Exception as exc:
-                last_exc = exc
-                logger.warning(
-                    "%s: backend %s failed after retries: %s",
-                    context, backend_name, exc,
-                )
+                if not ollama_urls:
+                    logger.debug("%s: no Ollama endpoints available", context)
+                    continue
+
+                for url, is_primary_url in ollama_urls:
+                    try:
+                        resp = self._call_with_retry(
+                            self._call_ollama,
+                            prompt=prompt,
+                            temperature=temperature,
+                            max_tokens=max_tokens,
+                            url=url,
+                        )
+                        if not is_primary_url:
+                            logger.info("%s: primary Ollama failed, used fallback %s", context, url)
+                        elif not is_primary:
+                            logger.info("%s: Claude failed, used Ollama fallback %s", context, url)
+                        return resp
+                    except Exception as exc:
+                        last_exc = exc
+                        logger.warning("%s: Ollama at %s failed after retries: %s", context, url, exc)
+
+            else:  # claude
+                if not self._claude_available:
+                    logger.debug("%s: skipping unavailable backend claude", context)
+                    continue
+                try:
+                    resp = self._call_with_retry(
+                        self._call_claude,
+                        prompt=prompt,
+                        temperature=temperature,
+                        max_tokens=max_tokens,
+                    )
+                    if not is_primary:
+                        logger.info("%s: primary failed, used fallback claude", context)
+                    return resp
+                except Exception as exc:
+                    last_exc = exc
+                    logger.warning("%s: claude failed after retries: %s", context, exc)
 
         raise LLMUnavailableError(
             f"{context}: no backend succeeded. Last error: {last_exc}"
@@ -372,9 +419,11 @@ class LLMSynthesizer:
         system: str = _DEFAULT_SYSTEM,
         temperature: float = 0.7,
         max_tokens: int = 500,
+        url: str | None = None,
     ) -> LLMResponse:
         """POST to Ollama /api/chat; return stripped response text."""
-        url = f"{self._ollama_url}/api/chat"
+        base = (url or self._ollama_url).rstrip("/")
+        url = f"{base}/api/chat"
         messages = []
         if system:
             messages.append({"role": "system", "content": system})

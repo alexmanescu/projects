@@ -133,23 +133,53 @@ brew install python@3.11
 python3.11 --version   # should print Python 3.11.x
 ```
 
-### 3.3 Install Ollama and download the model
+### 3.3 Ollama on the Mac Mini
+
+Ollama is already installed and the model is present — skip the download.
+Just make sure it's running:
 
 ```bash
-brew install ollama
-
-# Start Ollama in the background
 brew services start ollama
-
-# Download the model (this takes a while — ~18 GB)
-ollama pull qwen3-coder:30b
-
-# Verify it works
-ollama run qwen3-coder:30b "Say hello"
+ollama list   # should show hf.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q3_K_M
 ```
 
-> The model must be fully downloaded before PAE can run.
-> You can check download progress with `ollama list`.
+### 3.3a Windows GPU as primary Ollama (optional but faster)
+
+PAE supports a two-endpoint Ollama setup: **Windows GPU → Mac Mini → Claude**.
+To enable this, do the following on your **Windows 11 PC**:
+
+**1. Install Ollama for Windows** (if not already):
+Download from [ollama.com](https://ollama.com) and install.
+
+**2. Expose Ollama on the local network:**
+
+Open Windows → Search → **Edit the system environment variables** → **Environment Variables** → **New** (System variables):
+- Variable name: `OLLAMA_HOST`
+- Variable value: `0.0.0.0:11434`
+
+Restart Ollama after setting this.
+
+**3. Allow port 11434 through Windows Firewall:**
+
+Run in PowerShell (as Administrator):
+```powershell
+New-NetFirewallRule -DisplayName "Ollama LAN" -Direction Inbound -Protocol TCP -LocalPort 11434 -Action Allow
+```
+
+**4. Find your Windows PC's local IP:**
+```powershell
+ipconfig
+# Look for IPv4 Address under your active adapter, e.g. 192.168.1.100
+```
+
+**5. Add to `.env` on the Mac Mini:**
+```dotenv
+OLLAMA_BASE_URL=http://192.168.1.100:11434    # Windows GPU (primary)
+OLLAMA_FALLBACK_URL=http://localhost:11434     # Mac Mini (fallback)
+```
+
+PAE will now use the Windows GPU for inference and automatically fall back to
+the Mac Mini if the Windows machine is off or unreachable.
 
 ### 3.4 Clone the repo
 

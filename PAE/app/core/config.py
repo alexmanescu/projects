@@ -20,7 +20,11 @@ class Settings(BaseSettings):
 
     # ── LLMs ─────────────────────────────────────────────────────────────────
     ollama_base_url: str = Field(default="http://localhost:11434")
-    ollama_model: str = Field(default="qwen3-coder:30b")
+    ollama_fallback_url: str = Field(
+        default="",
+        description="Secondary Ollama endpoint (e.g. Windows GPU). Tried after primary fails.",
+    )
+    ollama_model: str = Field(default="hf.co/unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF:Q3_K_M")
     anthropic_api_key: str = Field(default="")
     claude_model: str = Field(default="claude-sonnet-4-6")
 
