@@ -903,6 +903,28 @@ def update_position_prices() -> None:
     )
 
 
+# ── Worker control (pause/resume via Telegram) ────────────────────────────────
+
+def _is_worker_paused(mode: str) -> bool:
+    """Return True if the bot has requested a pause for this worker mode.
+
+    Checks the ``worker_controls`` table for a row with ``worker_name=mode``
+    and ``paused=True``.  Missing rows are treated as not paused (running).
+    Errors are logged and treated as not paused so the worker keeps going.
+    """
+    from app.models.worker_control import WorkerControl
+
+    try:
+        with db_session() as db:
+            row = db.query(WorkerControl).filter(
+                WorkerControl.worker_name == mode
+            ).first()
+            return bool(row and row.paused)
+    except Exception as exc:
+        logger.warning("_is_worker_paused: DB check failed (%s) — treating as running", exc)
+        return False
+
+
 # ── Async helper ──────────────────────────────────────────────────────────────
 
 def _async_notify(coro) -> None:
@@ -975,6 +997,16 @@ def main() -> None:
     cycle_fn = run_scrape_cycle if mode == "scrape" else run_detection_cycle
 
     while True:
+        # ── Pause check (set via Telegram /pause command) ─────────────────────
+        if _is_worker_paused(mode):
+            logger.info("Worker paused via Telegram — sleeping 60s before re-check")
+            try:
+                time.sleep(60)
+            except KeyboardInterrupt:
+                logger.info("Shutting down — KeyboardInterrupt")
+                break
+            continue
+
         cycle_start = time.monotonic()
         try:
             counts = cycle_fn(strategy_name)

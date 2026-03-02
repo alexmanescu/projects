@@ -6,6 +6,7 @@ from app.models.signal import Signal
 from app.models.opportunity import Opportunity
 from app.models.trade import Trade
 from app.models.position import Position
+from app.models.worker_control import WorkerControl
 
 __all__ = [
     "Strategy",
@@ -16,4 +17,5 @@ __all__ = [
     "Opportunity",
     "Trade",
     "Position",
+    "WorkerControl",
 ]
