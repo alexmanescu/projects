@@ -49,7 +49,7 @@ CONFIG: dict = {
         # ── Western Mainstream ────────────────────────────────────────────────
         {
             "name": "Reuters Business",
-            "url": "https://news.google.com/rss/search?q=when:24h+allinurl:reuters.com+business&ceid=US:en&hl=en-US&gl=US",
+            "url": "https://news.google.com/rss/search?q=site:reuters.com+business&ceid=US:en&hl=en-US&gl=US",
             "type": "rss",
             "bias": "center",
             "category": "western_mainstream",
@@ -58,7 +58,7 @@ CONFIG: dict = {
         },
         {
             "name": "Reuters Tech",
-            "url": "https://news.google.com/rss/search?q=when:24h+allinurl:reuters.com+technology&ceid=US:en&hl=en-US&gl=US",
+            "url": "https://news.google.com/rss/search?q=site:reuters.com+technology&ceid=US:en&hl=en-US&gl=US",
             "type": "rss",
             "bias": "center",
             "category": "western_mainstream",
@@ -189,7 +189,7 @@ CONFIG: dict = {
         # ── Trends ────────────────────────────────────────────────────────────
         {
             "name": "Google Trends US",
-            "url": "https://trends.google.com/trends/trendingsearches/daily/rss?geo=US",
+            "url": "https://trends.google.com/trending/rss?geo=US",
             "type": "rss",
             "bias": "neutral",
             "category": "social_media",
