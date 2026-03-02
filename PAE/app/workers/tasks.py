@@ -68,8 +68,13 @@ def _load_strategy_module(name: str) -> ModuleType:
 
 # ── Core pipeline ─────────────────────────────────────────────────────────────
 
-def run_scrape_cycle(strategy_name: str) -> None:
-    """Execute one full scrape → analyse → signal cycle for *strategy_name*."""
+def run_scrape_cycle(strategy_name: str) -> dict:
+    """Execute one full scrape → analyse → signal cycle for *strategy_name*.
+
+    Returns:
+        Dict with keys ``scraped_new``, ``analyzed_existing``, ``skipped``,
+        ``error``.
+    """
     from app.models import Strategy
     from app.services.scrapers.rss_scraper import RSSNewsScraper, ScraperError
     from app.services.scrapers.article_processor import ArticleProcessor
@@ -145,6 +150,7 @@ def run_scrape_cycle(strategy_name: str) -> None:
         strategy_name,
         " | ".join(f"{k}={v}" for k, v in counts.items()),
     )
+    return counts
 
 
 # ── Scheduled tasks ───────────────────────────────────────────────────────────
@@ -354,6 +360,156 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
         except Exception as exc:
             logger.error("Failed to send opportunity alert for %s: %s", entity, exc)
 
+    return counts
+
+
+def run_detection_cycle(strategy_name: str) -> dict:
+    """Pattern detection and signal generation worker (GPU machine).
+
+    Designed to run on a second machine (e.g. Windows GPU host) that shares
+    the same MySQL database as the scrape worker running on the Mac Mini.
+
+    Steps:
+    1. Scrape RSS feeds to rebuild a category-tagged article list — fast
+       (~seconds, no LLM).  Article processing is **skipped**; the Mac Mini
+       worker already handled that via :func:`run_scrape_cycle`.
+    2. Run :class:`PatternDetector` on the article list.
+    3. For each coverage gap: generate an LLM trade thesis (GPU Ollama),
+       write a :class:`Signal` row, and send a Telegram opportunity alert.
+
+    Returns:
+        Dict with keys: ``articles_fetched``, ``gaps_detected``,
+        ``opportunities_sent``, ``error``.
+    """
+    from app.models import Strategy
+    from app.services.scrapers.rss_scraper import RSSNewsScraper, ScraperError
+    from app.services.analysis.pattern_detector import PatternDetector
+    from app.services.analysis.llm_synthesizer import LLMSynthesizer
+    from app.services.notifications.telegram_notifier import TelegramNotifier
+
+    logger.info("Starting detection cycle for strategy: %s", strategy_name)
+
+    module = _load_strategy_module(strategy_name)
+    sources = module.get_scrapers()
+
+    # Load PATTERNS (coverage-gap thresholds) from pattern_rules.py
+    patterns: dict = {}
+    import importlib.util, pathlib
+    rules_path = (
+        pathlib.Path(__file__).parent.parent.parent
+        / "strategies" / strategy_name / "pattern_rules.py"
+    )
+    if rules_path.exists():
+        spec = importlib.util.spec_from_file_location("_rules", rules_path)
+        rules_mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(rules_mod)
+        patterns = getattr(rules_mod, "PATTERNS", {})
+
+    # ── Scrape for category-tagged article list (no LLM) ──────────────────────
+    rss = RSSNewsScraper()
+    all_articles: list[dict] = []
+    counts: dict = {"articles_fetched": 0, "gaps_detected": 0, "opportunities_sent": 0, "error": 0}
+
+    for source in sources:
+        feed_url = source.get("url", "")
+        category = source.get("category", "unknown")
+        if not feed_url or source.get("type", "rss") != "rss":
+            continue
+        try:
+            articles = rss.scrape_feed(feed_url)
+        except ScraperError:
+            logger.warning("detection_cycle: skipping %s after fetch failure",
+                           source.get("name", feed_url))
+            counts["error"] += 1
+            continue
+        for article in articles:
+            all_articles.append({**article, "category": category})
+
+    counts["articles_fetched"] = len(all_articles)
+    logger.info("detection_cycle: %d articles fetched across %d sources",
+                len(all_articles), len(sources))
+
+    if not all_articles or not patterns:
+        logger.info("detection_cycle: nothing to detect — exiting early")
+        return counts
+
+    # ── Look up strategy DB id ─────────────────────────────────────────────────
+    strategy_id: int | None = None
+    with db_session() as db:
+        row = db.query(Strategy).filter(Strategy.name == strategy_name).first()
+        if row:
+            strategy_id = row.id
+
+    # ── Pattern detection ─────────────────────────────────────────────────────
+    detector = PatternDetector(patterns)
+    gaps = detector.analyze_coverage_gaps(all_articles, strategy_id or 0)
+    counts["gaps_detected"] = len(gaps)
+
+    if not gaps:
+        logger.info("detection_cycle: no coverage gaps detected")
+        return counts
+
+    logger.info("detection_cycle: %d gap(s) — generating theses", len(gaps))
+
+    # ── LLM thesis + Signal write + Telegram alert ────────────────────────────
+    llm = LLMSynthesizer(
+        ollama_url=settings.ollama_base_url,
+        ollama_model=settings.ollama_model,
+        claude_key=settings.anthropic_api_key,
+        claude_model=settings.claude_model,
+    )
+    notifier = TelegramNotifier()
+
+    for gap in gaps[:3]:
+        entity = gap.get("entity") or gap.get("topic", "")
+        if not entity:
+            continue
+
+        gap_ratio = float(gap.get("gap_ratio", 1.0))
+        confidence = min(gap_ratio / 10.0, 1.0)
+
+        _write_signal(
+            strategy_id=strategy_id,
+            ticker=entity,
+            signal_type="coverage_gap",
+            confidence=confidence,
+            raw=gap,
+        )
+
+        try:
+            thesis = llm.generate_thesis(gap, strategy_id or 0)
+        except Exception as exc:
+            logger.warning("detection_cycle: thesis failed for %s: %s", entity, exc)
+            thesis = (
+                f"Coverage gap: {entity} — {gap.get('asia_count', 0)} Asian "
+                f"vs {gap.get('western_count', 0)} Western articles "
+                f"(gap ratio: {gap_ratio:.1f}x)."
+            )
+
+        opportunity = {
+            "ticker": entity,
+            "topic": "coverage_gap",
+            "thesis": thesis,
+            "western_count": gap.get("western_count", 0),
+            "asia_count": gap.get("asia_count", 0),
+            "gap_ratio": gap_ratio,
+            "amount": 10_000.0,
+            "stop_loss_pct": 5.0,
+            "strategy_id": strategy_id,
+            "confluence_score": confidence,
+        }
+
+        try:
+            _async_notify(notifier.send_opportunity_alert(opportunity))
+            counts["opportunities_sent"] += 1
+        except Exception as exc:
+            logger.error("detection_cycle: alert failed for %s: %s", entity, exc)
+
+    logger.info(
+        "Detection cycle complete for %s: %s",
+        strategy_name,
+        " | ".join(f"{k}={v}" for k, v in counts.items()),
+    )
     return counts
 
 
@@ -767,21 +923,44 @@ def _async_notify(coro) -> None:
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def main() -> None:
-    """Continuous worker loop.  Ctrl-C to stop."""
+    """Continuous worker loop.  Ctrl-C to stop.
+
+    Usage::
+
+        python -m app.workers.tasks <strategy-name> [--mode scrape|detect]
+
+    Modes:
+        scrape  (default) — RSS scrape + per-article LLM analysis.
+                            Runs on the Mac Mini.
+        detect  — RSS scrape (fast, no LLM per article) + PatternDetector
+                  + thesis generation + Signal writes + Telegram alerts.
+                  Runs on the Windows GPU host.
+    """
     logging.basicConfig(
         level=settings.log_level,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
 
     if len(sys.argv) < 2:
-        logger.error("Usage: python -m app.workers.tasks <strategy-name>")
+        logger.error("Usage: python -m app.workers.tasks <strategy-name> [--mode scrape|detect]")
         sys.exit(1)
 
     strategy_name = sys.argv[1]
+
+    # Parse optional --mode flag (default: scrape)
+    mode = "scrape"
+    if "--mode" in sys.argv:
+        idx = sys.argv.index("--mode")
+        if idx + 1 < len(sys.argv):
+            mode = sys.argv[idx + 1]
+    if mode not in ("scrape", "detect"):
+        logger.error("Unknown --mode %r. Choose 'scrape' or 'detect'.", mode)
+        sys.exit(1)
+
     interval_sec = settings.check_interval_minutes * 60
 
-    logger.info("PAE worker starting — strategy=%s interval=%ds dry_run=%s",
-                strategy_name, interval_sec, settings.dry_run)
+    logger.info("PAE worker starting — strategy=%s mode=%s interval=%ds dry_run=%s",
+                strategy_name, mode, interval_sec, settings.dry_run)
 
     if not ping_db():
         logger.error("Cannot reach database at %s — aborting", settings.database_url)
@@ -790,14 +969,26 @@ def main() -> None:
     init_db()
     logger.info("Database schema initialised")
 
+    from app.services.notifications.telegram_notifier import TelegramNotifier
+    notifier = TelegramNotifier()
+
+    cycle_fn = run_scrape_cycle if mode == "scrape" else run_detection_cycle
+
     while True:
+        cycle_start = time.monotonic()
         try:
-            run_scrape_cycle(strategy_name)
+            counts = cycle_fn(strategy_name)
+            elapsed = time.monotonic() - cycle_start
+            if not settings.dry_run:
+                _async_notify(notifier.send_cycle_summary(strategy_name, counts, elapsed))
         except KeyboardInterrupt:
             logger.info("Shutting down — KeyboardInterrupt")
             break
-        except Exception:  # noqa: BLE001
-            logger.exception("Unhandled error in scrape cycle")
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Unhandled error in %s cycle", mode)
+            elapsed = time.monotonic() - cycle_start
+            if not settings.dry_run:
+                _async_notify(notifier.send_error_alert(strategy_name, str(exc)))
 
         logger.info("Sleeping %ds until next cycle…", interval_sec)
         try:

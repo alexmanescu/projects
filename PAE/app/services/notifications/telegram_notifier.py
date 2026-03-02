@@ -216,6 +216,68 @@ class TelegramNotifier:
 
         return await self.send_message(message)
 
+    # ── Cycle summary ─────────────────────────────────────────────────────────
+
+    async def send_cycle_summary(
+        self,
+        strategy: str,
+        counts: dict,
+        elapsed_sec: float,
+    ) -> bool:
+        """Send a scrape-cycle completion summary.
+
+        Args:
+            strategy: Strategy name shown in the header.
+            counts: Keys ``scraped_new``, ``analyzed_existing``, ``skipped``,
+                ``error``, ``gaps_detected``, ``opportunities_sent``.
+            elapsed_sec: Wall-clock duration of the cycle in seconds.
+
+        Returns:
+            Result of :meth:`send_message`.
+        """
+        scraped = counts.get("scraped_new", 0)
+        analyzed = counts.get("analyzed_existing", 0)
+        skipped = counts.get("skipped", 0)
+        errors = counts.get("error", 0)
+        gaps = counts.get("gaps_detected", 0)
+        opps = counts.get("opportunities_sent", 0)
+
+        minutes = int(elapsed_sec // 60)
+        seconds = int(elapsed_sec % 60)
+
+        lines = [
+            f"📊 <b>Cycle Complete</b>  |  <code>{strategy}</code>",
+            "",
+            f"• New articles: {scraped}",
+            f"• Analysed: {analyzed}",
+            f"• Skipped (dedup): {skipped}",
+        ]
+        if errors:
+            lines.append(f"• Errors: {errors} ⚠️")
+        if gaps:
+            lines.append(f"• Coverage gaps: {gaps}")
+        if opps:
+            lines.append(f"• Opportunities sent: {opps} 🎯")
+        lines.append(f"\n⏱ {minutes}m {seconds}s")
+
+        return await self.send_message("\n".join(lines))
+
+    async def send_error_alert(self, strategy: str, error: str) -> bool:
+        """Send a pipeline error alert.
+
+        Args:
+            strategy: Strategy name for context.
+            error: Error string (truncated to 500 chars).
+
+        Returns:
+            Result of :meth:`send_message`.
+        """
+        message = (
+            f"❌ <b>PAE ERROR</b>  |  <code>{strategy}</code>\n\n"
+            f"<code>{error[:500]}</code>"
+        )
+        return await self.send_message(message)
+
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _save_opportunity(self, opportunity: dict) -> int:
