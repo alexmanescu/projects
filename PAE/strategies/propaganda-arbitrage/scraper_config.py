@@ -21,7 +21,7 @@ CONFIG: dict = {
         # ── US Government / Official ──────────────────────────────────────────
         {
             "name": "White House News",
-            "url": "https://www.whitehouse.gov/feed/",
+            "url": "https://www.whitehouse.gov/news/feed/",
             "type": "rss",
             "bias": "government",
             "category": "government_official",
@@ -39,7 +39,7 @@ CONFIG: dict = {
         },
         {
             "name": "USTR News",
-            "url": "https://ustr.gov/about-us/policy-offices/press-office/press-releases/rss",
+            "url": "https://ustr.gov/rss.xml",
             "type": "rss",
             "bias": "government",
             "category": "government_official",
@@ -49,7 +49,7 @@ CONFIG: dict = {
         # ── Western Mainstream ────────────────────────────────────────────────
         {
             "name": "Reuters Business",
-            "url": "https://feeds.reuters.com/reuters/businessNews",
+            "url": "https://news.google.com/rss/search?q=when:24h+allinurl:reuters.com+business&ceid=US:en&hl=en-US&gl=US",
             "type": "rss",
             "bias": "center",
             "category": "western_mainstream",
@@ -58,7 +58,7 @@ CONFIG: dict = {
         },
         {
             "name": "Reuters Tech",
-            "url": "https://feeds.reuters.com/reuters/technologyNews",
+            "url": "https://news.google.com/rss/search?q=when:24h+allinurl:reuters.com+technology&ceid=US:en&hl=en-US&gl=US",
             "type": "rss",
             "bias": "center",
             "category": "western_mainstream",
