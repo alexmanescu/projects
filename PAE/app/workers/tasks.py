@@ -1083,6 +1083,11 @@ def _surface_kalshi_market_signals(
             if yes_price < yes_threshold and yes_price > no_threshold:
                 continue  # not a strong enough signal
 
+            # Skip sports / entertainment — we only want macro / political markets
+            mkt_category = (market.get("category") or "").lower().strip()
+            if mkt_category in {"sports", "entertainment", "pop culture", "awards"}:
+                continue
+
             # 24h dedup
             with db_session() as db:
                 existing = (

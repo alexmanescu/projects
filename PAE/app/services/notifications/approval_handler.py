@@ -296,19 +296,20 @@ class ApprovalHandler:
             )
             score_str = f"{opp.confluence_score:.2f}" if opp.confluence_score else "N/A"
 
-        message = (
-            f"📋 <b>OPPORTUNITY DETAILS #{opp.id}</b>\n\n"
-            f"<b>Ticker:</b> {opp.ticker}\n"
-            f"<b>Status:</b> {opp.status}\n"
-            f"<b>Confluence Score:</b> {score_str}\n\n"
-            f"<b>Full Thesis:</b>\n{opp.thesis or 'N/A'}\n\n"
-            f"<b>Coverage Analysis:</b>\n{opp.coverage_analysis or 'N/A'}\n\n"
-            f"<b>Catalyst:</b>\n{opp.catalyst or 'N/A'}\n\n"
-            f"<b>Suggested Position:</b>\n"
-            f"• Amount: {amount_str}\n"
-            f"• Stop Loss: {sl_str}\n"
-            f"• Created: {created_str}"
-        )
+            message = (
+                f"📋 <b>OPPORTUNITY DETAILS #{opp.id}</b>\n\n"
+                f"<b>Ticker:</b> {opp.ticker}\n"
+                f"<b>Status:</b> {opp.status}\n"
+                f"<b>Confluence Score:</b> {score_str}\n\n"
+                f"<b>Full Thesis:</b>\n{opp.thesis or 'N/A'}\n\n"
+                f"<b>Coverage Analysis:</b>\n{opp.coverage_analysis or 'N/A'}\n\n"
+                f"<b>Catalyst:</b>\n{opp.catalyst or 'N/A'}\n\n"
+                f"<b>Suggested Position:</b>\n"
+                f"• Amount: {amount_str}\n"
+                f"• Stop Loss: {sl_str}\n"
+                f"• Created: {created_str}"
+            )
+
         await self._notifier.send_message(message)
 
     # ── Sell ──────────────────────────────────────────────────────────────────

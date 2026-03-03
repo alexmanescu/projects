@@ -53,8 +53,12 @@ class Settings(BaseSettings):
     )
 
     # ── Runtime ───────────────────────────────────────────────────────────────
-    paper_trading: bool = Field(default=True)
-    dry_run: bool = Field(default=True, description="Skip all external side-effects")
+    # dry_run=True  → master kill-switch; no orders anywhere, no Telegram sends
+    # paper_trading=True  → Alpaca uses paper account (paper-api.alpaca.markets)
+    # kalshi_live=True  → actually place Kalshi orders (requires dry_run=False)
+    dry_run: bool = Field(default=True, description="Master kill-switch — skips all external side-effects")
+    paper_trading: bool = Field(default=True, description="Use Alpaca paper account instead of live")
+    kalshi_live: bool = Field(default=False, description="Place real Kalshi orders (dry_run must also be False)")
     check_interval_minutes: int = Field(default=60)
     log_level: str = Field(default="INFO")
 

@@ -122,10 +122,11 @@ class KalshiInterface:
         if not 1 <= max_price_cents <= 99:
             raise KalshiError(f"max_price_cents must be 1–99, got {max_price_cents}")
 
-        if settings.dry_run:
+        if settings.dry_run or not settings.kalshi_live:
+            label = "DRY_RUN" if settings.dry_run else "KALSHI_LIVE=false"
             logger.info(
-                "[DRY_RUN] Kalshi buy: %s %s x%d @ max %d¢",
-                market_ticker, side, count, max_price_cents,
+                "[%s] Kalshi buy: %s %s x%d @ max %d¢",
+                label, market_ticker, side, count, max_price_cents,
             )
             return {
                 "order_id": "dry-run",
@@ -196,8 +197,9 @@ class KalshiInterface:
         side = "yes" if net > 0 else "no"
         count = abs(net)
 
-        if settings.dry_run:
-            logger.info("[DRY_RUN] Kalshi sell: %s %s x%d", market_ticker, side, count)
+        if settings.dry_run or not settings.kalshi_live:
+            label = "DRY_RUN" if settings.dry_run else "KALSHI_LIVE=false"
+            logger.info("[%s] Kalshi sell: %s %s x%d", label, market_ticker, side, count)
             return {"status": "dry_run", "market_ticker": market_ticker}
 
         # Sell at 1¢ limit = accept any price (market order equivalent for binary)
