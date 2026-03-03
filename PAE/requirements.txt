@@ -25,6 +25,7 @@ APScheduler>=3.10
 
 # ── Trading ───────────────────────────────────────────────────────────────────
 alpaca-py>=0.18           # official Alpaca SDK (replaces alpaca-trade-api)
+kalshi-python>=2.1        # official Kalshi prediction-market SDK (auth + REST)
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 pandas>=2.0

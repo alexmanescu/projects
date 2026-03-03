@@ -105,19 +105,11 @@ class ApprovalHandler:
     async def handle_approval(self, opportunity_id: int) -> None:
         """Load opportunity, validate sizing, execute buy, update status.
 
-        Steps:
-        1. Load Opportunity from DB; abort if not found or already actioned.
-        2. Derive conviction level from ``confluence_score``.
-        3. Call ``PositionManager.validate_trade`` (raises on limit violations).
-        4. Execute buy via broker.
-        5. Log execution with ``Trade.log_execution``.
-        6. Mark opportunity ``"approved"`` and send confirmation.
+        Routes to KalshiInterface for market_type='kalshi', otherwise Alpaca.
         """
         from app.models import Opportunity, Trade
         from app.core.database import db_session
         from app.services.trading.position_manager import TradeValidationError
-
-        broker, pm = self._get_broker_pm()
 
         with db_session() as db:
             opp = db.query(Opportunity).filter(Opportunity.id == opportunity_id).first()
@@ -135,11 +127,22 @@ class ApprovalHandler:
                 )
                 return
 
+            market_type = opp.market_type or "us_stock"
+
+        if market_type == "kalshi":
+            await self._handle_kalshi_approval(opp)
+            return
+
+        # ── Equity approval (Alpaca / future Moomoo) ──────────────────────────
+        broker, pm = self._get_broker_pm()
+
+        with db_session() as db:
+            opp = db.query(Opportunity).filter(Opportunity.id == opportunity_id).first()
+
             ticker = opp.ticker
             conviction = self._score_to_conviction(float(opp.confluence_score or 0.5))
             stop_loss_pct = float(opp.stop_loss_pct or 0.05)
 
-            # Validate sizing and risk limits
             try:
                 sizing = pm.validate_trade(ticker, conviction, stop_loss_pct)
             except TradeValidationError as exc:
@@ -149,16 +152,13 @@ class ApprovalHandler:
                 opp.status = "rejected"
                 return
 
-            # Execute the buy order
             result = broker.execute_buy(ticker, sizing["shares"], stop_loss_pct)
 
-            # Compute stop price for the trade log
             fill_price = result.filled_price
             stop_price = None
             if fill_price:
                 stop_price = pm.calculate_stop_loss(fill_price, stop_loss_pct)
 
-            # Record the trade
             Trade.log_execution(
                 db,
                 ticker=ticker,
@@ -185,6 +185,63 @@ class ApprovalHandler:
             "filled_price": result.filled_price,
             "stop_loss": stop_price,
         })
+
+    async def _handle_kalshi_approval(self, opp) -> None:
+        """Execute a Kalshi contract buy and confirm via Telegram."""
+        from app.models import Trade
+        from app.core.database import db_session
+        from app.services.trading.kalshi_interface import KalshiInterface, KalshiError
+
+        market_ticker = opp.kalshi_market_id or opp.ticker
+        side = opp.kalshi_side or "yes"
+        yes_price = int(opp.kalshi_yes_price or 50)
+        contract_price = yes_price if side == "yes" else (100 - yes_price)
+        suggested_amount = float(opp.suggested_amount or 5.0)
+        count = max(1, int(suggested_amount / (contract_price / 100)))
+
+        try:
+            kalshi = KalshiInterface()
+            result = kalshi.buy_contracts(
+                market_ticker=market_ticker,
+                side=side,
+                count=count,
+                max_price_cents=min(contract_price + 3, 99),  # 3¢ slippage tolerance
+            )
+        except KalshiError as exc:
+            await self._notifier.send_message(
+                f"❌ Kalshi order failed for <b>{market_ticker}</b>:\n{exc}"
+            )
+            return
+
+        with db_session() as db:
+            opp_row = db.query(opp.__class__).filter(opp.__class__.id == opp.id).first()
+            if opp_row:
+                opp_row.status = "approved"
+
+            Trade.log_execution(
+                db,
+                ticker=market_ticker,
+                action="buy",
+                quantity=float(count),
+                price=contract_price / 100.0,
+                opportunity_id=opp.id,
+                strategy_id=opp.primary_strategy_id,
+                notes=f"kalshi_side={side} market={market_ticker} status={result.get('status')}",
+            )
+
+        logger.info(
+            "Kalshi opportunity #%d approved: %s %s x%d @ %d¢",
+            opp.id, market_ticker, side, count, contract_price,
+        )
+        await self._notifier.send_message(
+            f"✅ <b>KALSHI ORDER{'  <i>(dry run)</i>' if result.get('status') == 'dry_run' else ''}</b>\n\n"
+            f"<b>Market:</b> <code>{market_ticker}</code>\n"
+            f"<b>Side:</b> {side.upper()}\n"
+            f"<b>Contracts:</b> {count}\n"
+            f"<b>Price:</b> {contract_price}¢\n"
+            f"<b>Total cost:</b> ${count * contract_price / 100:.2f}\n"
+            f"<b>Max payout:</b> ${count:.2f}"
+        )
 
     # ── Rejection ─────────────────────────────────────────────────────────────
 

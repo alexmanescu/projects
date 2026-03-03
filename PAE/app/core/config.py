@@ -40,6 +40,17 @@ class Settings(BaseSettings):
     # ── Prediction Markets ────────────────────────────────────────────────────
     kalshi_api_key: str = Field(default="")
     kalshi_secret: str = Field(default="")
+    kalshi_base_url: str = Field(default="https://api.elections.kalshi.com/trade-api/v2")
+
+    # ── Signal surfacing ──────────────────────────────────────────────────────
+    layer_a_signal_min_strength: float = Field(
+        default=0.4,
+        description="Minimum signal_strength to surface a Layer A opportunity",
+    )
+    layer_a_signal_lookback_hours: int = Field(
+        default=2,
+        description="How far back to query article_analysis for Layer A signals",
+    )
 
     # ── Runtime ───────────────────────────────────────────────────────────────
     paper_trading: bool = Field(default=True)

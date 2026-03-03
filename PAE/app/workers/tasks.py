@@ -283,7 +283,25 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
         )
         return counts
 
-    # ── Pattern detection ─────────────────────────────────────────────────────
+    # ── Shared LLM + notifier (used by both Layer A and Layer B) ──────────────
+    llm = LLMSynthesizer(
+        ollama_url=settings.ollama_base_url,
+        ollama_model=settings.ollama_model,
+        claude_key=settings.anthropic_api_key,
+        claude_model=settings.claude_model,
+    )
+    notifier = TelegramNotifier()
+
+    # ── Layer A: surface signals from article_analysis DB ─────────────────────
+    layer_a_opps = _surface_layer_a_opportunities(
+        strategy_id=strategy_id,
+        pattern_rules=pattern_rules,
+        notifier=notifier,
+        llm=llm,
+    )
+    counts["opportunities_sent"] += layer_a_opps
+
+    # ── Layer B: Pattern detection (coverage gaps) ─────────────────────────────
     if not patterns or not all_articles:
         return counts
 
@@ -297,24 +315,14 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
 
     logger.info("_run_strategy_pipeline: %d gap(s) detected for %s", len(gaps), strategy_name)
 
-    # ── LLM thesis + Signal write + alert ─────────────────────────────────────
-    llm = LLMSynthesizer(
-        ollama_url=settings.ollama_base_url,
-        ollama_model=settings.ollama_model,
-        claude_key=settings.anthropic_api_key,
-        claude_model=settings.claude_model,
-    )
-    notifier = TelegramNotifier()
-
     for gap in gaps[:3]:   # cap at 3 alerts per strategy per cycle
-        entity = gap.get("entity", "")
+        entity = gap.get("topic", "")
         if not entity:
             continue
 
         gap_ratio = float(gap.get("gap_ratio", 1.0))
         confidence = min(gap_ratio / 10.0, 1.0)
 
-        # Write Signal row so detect_confluence() can aggregate across strategies
         _write_signal(
             strategy_id=strategy_id,
             ticker=entity,
@@ -323,7 +331,6 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
             raw=gap,
         )
 
-        # Generate LLM thesis
         try:
             thesis = llm.generate_thesis(gap, strategy_id or 0)
         except Exception as exc:
@@ -342,23 +349,27 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
             "asia_count": gap.get("asia_count", 0),
             "gap_ratio": gap_ratio,
             "amount": 10_000.0,
-            "stop_loss_pct": 5.0,
+            "stop_loss_pct": 15.0,   # Layer B: wider stop (structural trade)
             "strategy_id": strategy_id,
             "confluence_score": confidence,
         }
 
         try:
-            asyncio.run(notifier.send_opportunity_alert(opportunity))
-            counts["opportunities_sent"] += 1
-        except RuntimeError:
-            # Already inside an event loop — use nest_asyncio or run in thread
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                fut = pool.submit(asyncio.run, notifier.send_opportunity_alert(opportunity))
-                fut.result(timeout=30)
+            _async_notify(notifier.send_opportunity_alert(opportunity))
             counts["opportunities_sent"] += 1
         except Exception as exc:
             logger.error("Failed to send opportunity alert for %s: %s", entity, exc)
+
+        # Also search Kalshi for related prediction markets
+        _find_kalshi_opportunities(
+            entity=entity,
+            signal_type="coverage_gap",
+            direction="bullish",
+            context=f"Coverage gap: {entity} — {gap.get('asia_count', 0)}x Asian vs Western coverage",
+            strategy_id=strategy_id,
+            notifier=notifier,
+            llm=llm,
+        )
 
     return counts
 
@@ -511,6 +522,268 @@ def run_detection_cycle(strategy_name: str) -> dict:
         " | ".join(f"{k}={v}" for k, v in counts.items()),
     )
     return counts
+
+
+def _surface_layer_a_opportunities(
+    strategy_id: int | None,
+    pattern_rules: list[dict],
+    notifier,
+    llm,
+) -> int:
+    """Query recent article_analysis rows and surface Layer A signal opportunities.
+
+    Reads article_analysis records from the last ``settings.layer_a_signal_lookback_hours``
+    hours where ``signal_strength >= settings.layer_a_signal_min_strength`` and
+    ``topics_detected`` is non-empty.  Groups by matched rule name and creates an
+    ``Opportunity`` row plus Telegram alert when ≥ 2 articles fire the same rule.
+
+    Deduplicates against existing pending/approved opportunities in the last 24h
+    for the same signal_type so repeated cycles don't re-alert on the same event.
+
+    Returns:
+        Number of new opportunities created.
+    """
+    from datetime import datetime, timezone, timedelta
+    from app.models.article import ArticleAnalysis
+    from app.models import Opportunity
+
+    min_strength = settings.layer_a_signal_min_strength
+    lookback = settings.layer_a_signal_lookback_hours
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=lookback)
+    dedup_cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+
+    rules_by_name = {r["name"]: r for r in pattern_rules}
+    opportunities_created = 0
+
+    with db_session() as db:
+        rows = (
+            db.query(ArticleAnalysis)
+            .filter(
+                ArticleAnalysis.analyzed_at >= cutoff,
+                ArticleAnalysis.signal_strength >= min_strength,
+                ArticleAnalysis.topics_detected.isnot(None),
+                ArticleAnalysis.topics_detected != "[]",
+                ArticleAnalysis.topics_detected != "",
+            )
+            .all()
+        )
+
+    if not rows:
+        logger.debug("_surface_layer_a: no qualifying rows in last %dh", lookback)
+        return 0
+
+    # Group articles by matched rule name
+    rule_articles: dict[str, list[dict]] = {}
+    for row in rows:
+        try:
+            topics = json.loads(row.topics_detected or "[]")
+        except (json.JSONDecodeError, TypeError):
+            continue
+        for topic in topics:
+            if topic not in rule_articles:
+                rule_articles[topic] = []
+            rule_articles[topic].append({
+                "signal_strength": float(row.signal_strength or 0),
+                "sentiment_score": float(row.sentiment_score or 0),
+                "registry_id": row.registry_id,
+            })
+
+    for rule_name, articles in rule_articles.items():
+        if len(articles) < 2:
+            continue
+
+        rule = rules_by_name.get(rule_name)
+        if not rule:
+            continue
+
+        tickers = rule.get("tickers", [])
+        if not tickers:
+            continue
+
+        signal_type = rule.get("signal_type", "neutral")
+        confidence = rule.get("confidence", 0.5)
+        avg_strength = sum(a["signal_strength"] for a in articles) / len(articles)
+        final_confidence = min(1.0, (confidence + avg_strength) / 2)
+
+        # Deduplicate: skip if same rule already has a pending/approved opp in last 24h
+        with db_session() as db:
+            existing = (
+                db.query(Opportunity)
+                .filter(
+                    Opportunity.primary_strategy_id == strategy_id,
+                    Opportunity.catalyst == rule_name,
+                    Opportunity.status.in_(["pending", "approved"]),
+                    Opportunity.created_at >= dedup_cutoff,
+                )
+                .first()
+            )
+        if existing:
+            logger.debug(
+                "_surface_layer_a: skipping %r (opp #%d already exists)", rule_name, existing.id
+            )
+            continue
+
+        primary_ticker = tickers[0]
+
+        try:
+            thesis = llm.generate_raw(
+                f"In 2 sentences, explain the trading opportunity from this signal:\n"
+                f"Signal: {rule_name}\n"
+                f"Description: {rule.get('description', '')}\n"
+                f"Articles matched: {len(articles)}\n"
+                f"Signal direction: {signal_type}\n"
+                f"Primary ticker: {primary_ticker}\n"
+                f"All tickers: {', '.join(tickers)}\n"
+                f"Be concise and actionable.",
+                temperature=0.5,
+                max_tokens=200,
+            )
+        except Exception as exc:
+            logger.warning("_surface_layer_a: thesis generation failed for %r: %s", rule_name, exc)
+            thesis = rule.get("description", "")
+
+        stop_loss_pct = 5.0 if signal_type == "bullish" else 3.0
+        suggested_amount = 10_000.0 * final_confidence
+
+        opportunity = {
+            "ticker": primary_ticker,
+            "topic": rule_name,
+            "thesis": thesis,
+            "western_count": 0,
+            "asia_count": 0,
+            "gap_ratio": 0.0,
+            "amount": suggested_amount,
+            "stop_loss_pct": stop_loss_pct,
+            "strategy_id": strategy_id,
+            "confluence_score": round(final_confidence, 2),
+            "layer": "A",
+            "all_tickers": tickers,
+            "article_count": len(articles),
+        }
+
+        _write_signal(
+            strategy_id=strategy_id,
+            ticker=primary_ticker,
+            signal_type=rule_name,
+            confidence=final_confidence,
+            raw={"rule": rule_name, "articles": len(articles), "tickers": tickers},
+        )
+
+        try:
+            _async_notify(notifier.send_opportunity_alert(opportunity))
+            opportunities_created += 1
+            logger.info(
+                "_surface_layer_a: Layer A alert %r → %s (%d articles, conf=%.2f)",
+                rule_name, primary_ticker, len(articles), final_confidence,
+            )
+        except Exception as exc:
+            logger.error("_surface_layer_a: alert failed for %r: %s", rule_name, exc)
+
+        # Also search Kalshi for related markets
+        direction = "bullish" if signal_type in ("bullish", "neutral") else "bearish"
+        _find_kalshi_opportunities(
+            entity=primary_ticker,
+            signal_type=rule_name,
+            direction=direction,
+            context=rule.get("description", rule_name),
+            strategy_id=strategy_id,
+            notifier=notifier,
+            llm=llm,
+        )
+
+    return opportunities_created
+
+
+def _find_kalshi_opportunities(
+    entity: str,
+    signal_type: str,
+    direction: str,
+    context: str,
+    strategy_id: int | None,
+    notifier,
+    llm,
+) -> int:
+    """Search Kalshi for markets relevant to a signal and create opportunities.
+
+    Returns:
+        Number of Kalshi opportunity alerts sent.
+    """
+    if not settings.kalshi_api_key:
+        return 0
+
+    from app.services.trading.kalshi_interface import KalshiInterface
+    from app.services.analysis.kalshi_market_finder import KalshiMarketFinder
+
+    try:
+        kalshi = KalshiInterface()
+        finder = KalshiMarketFinder(kalshi, llm)
+        candidates = finder.find_for_signal(
+            entity=entity,
+            signal_type=signal_type,
+            direction=direction,
+            context=context,
+        )
+    except Exception as exc:
+        logger.warning("_find_kalshi_opportunities: finder failed for %r: %s", entity, exc)
+        return 0
+
+    sent = 0
+    for candidate in candidates:
+        market_ticker = candidate.get("market_ticker", "")
+        if not market_ticker:
+            continue
+
+        yes_price = candidate.get("yes_price", 50)
+        side = candidate.get("side", "yes")
+        relevance = candidate.get("relevance_score", 0.4)
+        rationale = candidate.get("llm_rationale", "")
+        title = candidate.get("title", market_ticker)
+
+        contract_price = yes_price if side == "yes" else (100 - yes_price)
+        suggested_contracts = max(5, int(200 / max(contract_price, 1)))
+        suggested_amount = round(suggested_contracts * contract_price / 100, 2)
+
+        opportunity = {
+            "ticker": market_ticker,
+            "topic": signal_type,
+            "thesis": (
+                f"Kalshi market: {title}\n\n"
+                f"Recommended: {side.upper()} @ {contract_price}¢/contract\n"
+                f"Relevance to signal: {relevance:.0%}\n\n"
+                f"{rationale}"
+            ),
+            "western_count": 0,
+            "asia_count": 0,
+            "gap_ratio": 0.0,
+            "amount": suggested_amount,
+            "stop_loss_pct": 0.0,
+            "strategy_id": strategy_id,
+            "confluence_score": round(relevance, 2),
+            "market_type": "kalshi",
+            "kalshi_market_id": market_ticker,
+            "kalshi_side": side,
+            "kalshi_yes_price": yes_price,
+        }
+
+        _write_signal(
+            strategy_id=strategy_id,
+            ticker=market_ticker,
+            signal_type=f"kalshi_{signal_type}",
+            confidence=relevance,
+            raw=candidate,
+        )
+
+        try:
+            _async_notify(notifier.send_kalshi_opportunity_alert(opportunity))
+            sent += 1
+            logger.info(
+                "_find_kalshi: sent alert %s %s @ %d¢ (relevance=%.2f)",
+                market_ticker, side, contract_price, relevance,
+            )
+        except Exception as exc:
+            logger.error("_find_kalshi: alert failed for %s: %s", market_ticker, exc)
+
+    return sent
 
 
 def _write_signal(

@@ -258,6 +258,38 @@ class LLMSynthesizer:
             logger.warning("score_signal_strength: all backends failed — returning default 0.5")
             return 0.5
 
+    def generate_raw(
+        self,
+        prompt: str,
+        temperature: float = 0.5,
+        max_tokens: int = 600,
+    ) -> str:
+        """Send an arbitrary prompt and return the raw response text.
+
+        Routes to Ollama primary, falls back to Claude.  Use this for
+        ad-hoc scoring or structured-output tasks that don't fit the
+        typed helpers above (e.g. Kalshi market relevance scoring).
+
+        Args:
+            prompt: Full prompt text (no additional system wrapper applied).
+            temperature: Generation temperature (default 0.5).
+            max_tokens: Maximum tokens in response.
+
+        Returns:
+            Stripped response text.
+
+        Raises:
+            LLMUnavailableError: When all backends fail.
+        """
+        return self._route(
+            prompt=prompt,
+            primary="ollama",
+            fallback="claude",
+            temperature=temperature,
+            max_tokens=max_tokens,
+            context="generate_raw",
+        ).text
+
     def is_available(self) -> bool:
         """Return True if at least one backend is reachable."""
         return self._ollama_available or self._claude_available

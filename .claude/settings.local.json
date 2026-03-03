@@ -2,7 +2,11 @@
   "permissions": {
     "allow": [
       "Bash(ls \"s:/ECommerce/Projects/Alex Manescu/Custom Apps/projects_repo/projects/MI_Barcode/lib/TCPDF-main/\"*.php)",
-      "WebFetch(domain:www.greengeeks.com)"
+      "WebFetch(domain:www.greengeeks.com)",
+      "WebFetch(domain:www.reddit.com)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:pypi.org)"
     ]
   }
 }

@@ -14,9 +14,9 @@ Two complementary structures:
 PATTERNS: dict = {
     "coverage_gap": {
         # A gap is flagged when asia sources are prominent AND west is quiet
-        "min_asia_articles": 5,
-        "max_western_articles": 2,
-        "min_gap_ratio": 3.0,
+        "min_asia_articles": 2,
+        "max_western_articles": 5,
+        "min_gap_ratio": 1.5,
     },
     "policy_catalyst": {
         "keywords": ["subsidy", "fund", "billion", "investment", "policy", "regulation"],

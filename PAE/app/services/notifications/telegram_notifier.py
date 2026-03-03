@@ -216,6 +216,49 @@ class TelegramNotifier:
 
         return await self.send_message(message)
 
+    # ── Kalshi opportunity alert ──────────────────────────────────────────────
+
+    async def send_kalshi_opportunity_alert(self, opportunity: dict) -> int:
+        """Persist a Kalshi prediction-market opportunity and push a Telegram alert.
+
+        Returns:
+            The newly created ``Opportunity.id``, or ``-1`` on failure.
+        """
+        opp_id = self._save_opportunity(opportunity)
+        if opp_id < 0:
+            logger.error("Skipping Kalshi alert — failed to save opportunity")
+            return opp_id
+
+        market_id = opportunity.get("kalshi_market_id", opportunity.get("ticker", "UNKNOWN"))
+        side = (opportunity.get("kalshi_side") or "yes").upper()
+        yes_price = int(opportunity.get("kalshi_yes_price") or 50)
+        no_price = 100 - yes_price
+        contract_price = yes_price if side == "YES" else no_price
+        thesis = opportunity.get("thesis", "")
+        amount = opportunity.get("amount", 0.0)
+        signal_type = opportunity.get("topic", "")
+        confluence = float(opportunity.get("confluence_score") or 0.0)
+
+        thesis_preview = (thesis[:280] + "...") if len(thesis) > 280 else thesis
+
+        message = (
+            f"🎰 <b>KALSHI OPPORTUNITY</b>\n\n"
+            f"<b>Market:</b> <code>{market_id}</code>\n"
+            f"<b>Signal:</b> {signal_type}\n\n"
+            f"<b>Trade:</b> BUY {side} @ {contract_price}¢/contract\n"
+            f"<b>YES price:</b> {yes_price}¢  |  <b>NO price:</b> {no_price}¢\n"
+            f"<b>Suggested:</b> ${amount:,.2f}\n"
+            f"<b>Relevance:</b> {confluence:.0%}\n\n"
+            f"<b>Rationale:</b>\n{thesis_preview}\n\n"
+            f"<b>Commands:</b>\n"
+            f"Buy: <code>YES {opp_id}</code>\n"
+            f"Skip: <code>NO {opp_id}</code>\n"
+            f"Details: <code>INFO {opp_id}</code>"
+        )
+
+        await self.send_message(message)
+        return opp_id
+
     # ── Cycle summary ─────────────────────────────────────────────────────────
 
     async def send_cycle_summary(
@@ -245,11 +288,12 @@ class TelegramNotifier:
         minutes = int(elapsed_sec // 60)
         seconds = int(elapsed_sec % 60)
 
+        total_analyzed = scraped + analyzed
         lines = [
             f"📊 <b>Cycle Complete</b>  |  <code>{strategy}</code>",
             "",
             f"• New articles: {scraped}",
-            f"• Analysed: {analyzed}",
+            f"• Analysed (total): {total_analyzed}",
             f"• Skipped (dedup): {skipped}",
         ]
         if errors:
@@ -305,6 +349,10 @@ class TelegramNotifier:
                     stop_loss_pct=opportunity.get("stop_loss_pct"),
                     confluence_score=opportunity.get("confluence_score"),
                     primary_strategy_id=opportunity.get("strategy_id"),
+                    market_type=opportunity.get("market_type", "us_stock"),
+                    kalshi_market_id=opportunity.get("kalshi_market_id"),
+                    kalshi_side=opportunity.get("kalshi_side"),
+                    kalshi_yes_price=opportunity.get("kalshi_yes_price"),
                     status="pending",
                 )
                 db.add(row)

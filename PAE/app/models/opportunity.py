@@ -19,7 +19,11 @@ class Opportunity(Base):
     )
     confluence_strategy_ids: Mapped[str | None] = mapped_column(Text)  # JSON array
     confluence_score: Mapped[float | None] = mapped_column(DECIMAL(3, 2))
+    market_type: Mapped[str] = mapped_column(String(20), default="us_stock", nullable=False)
     ticker: Mapped[str] = mapped_column(String(20), nullable=False)
+    kalshi_market_id: Mapped[str | None] = mapped_column(String(100))
+    kalshi_side: Mapped[str | None] = mapped_column(String(3))   # "yes" or "no"
+    kalshi_yes_price: Mapped[float | None] = mapped_column(DECIMAL(5, 2))
     thesis: Mapped[str | None] = mapped_column(Text)
     coverage_analysis: Mapped[str | None] = mapped_column(Text)
     catalyst: Mapped[str | None] = mapped_column(Text)
