@@ -12,6 +12,11 @@ SELL {ticker}  — Close an open position
 HOLD {ticker}  — Acknowledge alert, keep monitoring
 STATUS         — Portfolio snapshot
 HELP           — Command reference
+
+Reply-based actions
+-------------------
+Reply YES to a 📡 suggestion message — approve a new Kalshi signal category
+Reply NO  to a 📡 suggestion message — reject a new Kalshi signal category
 """
 
 from __future__ import annotations
@@ -53,6 +58,13 @@ class ApprovalHandler:
         command = parts[0] if parts else ""
 
         try:
+            # Reply-based category vote: just send YES or NO as a reply to a suggestion message
+            if command in ("YES", "NO") and update.message.reply_to_message:
+                replied_id = update.message.reply_to_message.message_id
+                handled = await self._handle_category_vote(replied_id, command, update)
+                if handled:
+                    return
+
             if command == "YES" and len(parts) >= 2:
                 opp_id = int(parts[1])
                 await update.message.reply_text(f"⏳ Processing approval for opportunity #{opp_id}…")
@@ -385,6 +397,56 @@ class ApprovalHandler:
         )
         await self._notifier.send_message(message)
 
+    # ── Category voting ───────────────────────────────────────────────────────
+
+    async def _handle_category_vote(
+        self, telegram_message_id: int, vote: str, update: "Update"
+    ) -> bool:
+        """Handle a YES/NO reply to a Kalshi signal-category suggestion.
+
+        Returns ``True`` if the replied-to message was a category suggestion
+        (even if already actioned).  Returns ``False`` when no matching
+        category is found so the caller can fall through to trade approval.
+        """
+        from datetime import datetime, timezone
+        from app.models.kalshi_category import KalshiCategory
+        from app.core.database import db_session
+
+        with db_session() as db:
+            cat = (
+                db.query(KalshiCategory)
+                .filter(KalshiCategory.telegram_message_id == telegram_message_id)
+                .first()
+            )
+
+            if cat is None:
+                return False  # not a category suggestion — caller should fall through
+
+            if cat.status != "suggested":
+                await update.message.reply_text(
+                    f"⚠️ Category <b>{cat.term}</b> is already <b>{cat.status}</b>.",
+                    parse_mode="HTML",
+                )
+                return True
+
+            if vote == "YES":
+                cat.status = "approved"
+                cat.approved_at = datetime.now(timezone.utc)
+                await update.message.reply_text(
+                    f"✅ Category <b>{cat.term}</b> approved — active next cycle.",
+                    parse_mode="HTML",
+                )
+                logger.info("Kalshi category %r approved via Telegram reply", cat.term)
+            else:
+                cat.status = "rejected"
+                await update.message.reply_text(
+                    f"🚫 Category <b>{cat.term}</b> rejected.",
+                    parse_mode="HTML",
+                )
+                logger.info("Kalshi category %r rejected via Telegram reply", cat.term)
+
+        return True
+
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _get_broker_pm(self):
@@ -419,5 +481,7 @@ class ApprovalHandler:
             "• <code>HOLD {ticker}</code> — Acknowledge alert, keep monitoring\n\n"
             "<b>Portfolio:</b>\n"
             "• <code>STATUS</code> — Portfolio summary\n"
-            "• <code>HELP</code>   — Show this message"
+            "• <code>HELP</code>   — Show this message\n\n"
+            "<b>Signal Categories:</b>\n"
+            "• Reply <code>YES</code> or <code>NO</code> to a 📡 suggestion — Approve or reject a new Kalshi signal category"
         )

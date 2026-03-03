@@ -68,6 +68,127 @@ def _load_strategy_module(name: str) -> ModuleType:
 
 # ── Core pipeline ─────────────────────────────────────────────────────────────
 
+def _suggest_kalshi_categories(articles: list[dict], strategy_id: int | None, notifier) -> int:
+    """Scan recent article titles and suggest new Kalshi signal search terms.
+
+    Uses the LLM to extract specific geopolitical/economic entities from the
+    article corpus that are not already in ``_KALSHI_SIGNAL_CATEGORIES`` or the
+    ``kalshi_categories`` DB table.  Each new entity is written as a
+    ``status="suggested"`` row and a Telegram message is sent asking the user
+    to reply YES/NO to the suggestion message to approve or reject it.
+
+    Args:
+        articles: List of article dicts (must have ``title`` key).
+        strategy_id: FK for the suggestion rows (nullable).
+        notifier: TelegramNotifier instance.
+
+    Returns:
+        Number of new suggestions sent.
+    """
+    if not articles:
+        return 0
+
+    from app.services.analysis.llm_synthesizer import LLMSynthesizer
+    from app.models.kalshi_category import KalshiCategory
+
+    # Collect all existing terms to avoid re-suggesting
+    existing_terms: set[str] = set()
+    for terms in _KALSHI_SIGNAL_CATEGORIES.values():
+        existing_terms.update(t.lower() for t in terms)
+    try:
+        with db_session() as db:
+            rows = db.query(KalshiCategory).all()
+            existing_terms.update(r.term.lower() for r in rows)
+    except Exception as exc:
+        logger.debug("_suggest_kalshi_categories: could not load existing terms: %s", exc)
+
+    # Sample article titles for LLM
+    titles = [a.get("title", "") for a in articles if a.get("title")][:50]
+    if not titles:
+        return 0
+
+    existing_list = ", ".join(sorted(existing_terms)[:30])
+    titles_text = "\n".join(f"- {t}" for t in titles)
+
+    prompt = (
+        f"You are analyzing news headlines to find new prediction market signal categories.\n\n"
+        f"Headlines:\n{titles_text}\n\n"
+        f"Already tracked terms (do NOT suggest these): {existing_list}\n\n"
+        f"Identify up to 5 NEW specific geopolitical, economic, or commodity entities or events "
+        f"from these headlines that would make good Kalshi prediction market search terms. "
+        f"Be specific (e.g. 'Strait of Hormuz' not 'shipping').\n\n"
+        f"Output format (one per line):\n"
+        f"TERM: <search term> CATEGORY: <rates|trade|geopolitical|energy|other>"
+    )
+
+    try:
+        llm = LLMSynthesizer(
+            ollama_url=settings.ollama_base_url,
+            ollama_model=settings.ollama_model,
+            claude_key=settings.anthropic_api_key,
+            claude_model=settings.claude_model,
+        )
+        raw = llm.generate_raw(prompt, temperature=0.3, max_tokens=300)
+    except Exception as exc:
+        logger.warning("_suggest_kalshi_categories: LLM failed: %s", exc)
+        return 0
+
+    import re as _re
+    _SUGGEST_RE = _re.compile(
+        r"^TERM:\s*(.+?)\s+CATEGORY:\s*(\w+)\s*$", _re.MULTILINE | _re.IGNORECASE
+    )
+    suggestions = _SUGGEST_RE.findall(raw)
+    if not suggestions:
+        return 0
+
+    sent = 0
+    for term, category in suggestions:
+        term = term.strip()
+        category = category.strip().lower()
+        if not term or term.lower() in existing_terms:
+            continue
+
+        # Write to DB
+        try:
+            with db_session() as db:
+                row = KalshiCategory(
+                    term=term,
+                    category=category,
+                    status="suggested",
+                    source=f"auto-suggested from {len(titles)} article titles",
+                )
+                db.add(row)
+                db.flush()
+                row_id = row.id
+
+            msg = (
+                f"📡 <b>SIGNAL CATEGORY SUGGESTION</b>\n\n"
+                f"<b>Term:</b> {term}\n"
+                f"<b>Category:</b> {category}\n"
+                f"<b>Source:</b> appeared in recent articles\n\n"
+                f"<i>Reply YES to this message to approve, NO to reject.</i>"
+            )
+            try:
+                msg_id = asyncio.run(notifier.send_message_get_id(msg))
+            except RuntimeError:
+                import concurrent.futures as _cf
+                with _cf.ThreadPoolExecutor(max_workers=1) as pool:
+                    msg_id = pool.submit(asyncio.run, notifier.send_message_get_id(msg)).result(timeout=30)
+            if msg_id:
+                with db_session() as db:
+                    db.query(KalshiCategory).filter(
+                        KalshiCategory.id == row_id
+                    ).update({"telegram_message_id": msg_id})
+
+            existing_terms.add(term.lower())
+            sent += 1
+            logger.info("_suggest_kalshi_categories: suggested %r (%s)", term, category)
+        except Exception as exc:
+            logger.error("_suggest_kalshi_categories: failed for %r: %s", term, exc)
+
+    return sent
+
+
 def run_scrape_cycle(strategy_name: str) -> dict:
     """Execute one full scrape → analyse → signal cycle for *strategy_name*.
 
@@ -101,6 +222,7 @@ def run_scrape_cycle(strategy_name: str) -> dict:
     rss = RSSNewsScraper()
     processor = ArticleProcessor(strategy_name, pattern_rules)
     counts = {"scraped_new": 0, "analyzed_existing": 0, "skipped": 0, "error": 0}
+    all_scraped_articles: list[dict] = []
 
     with db_session() as session:
         # Ensure strategy row exists
@@ -111,6 +233,8 @@ def run_scrape_cycle(strategy_name: str) -> dict:
             strategy_row = Strategy(name=strategy_name, is_active=True)
             session.add(strategy_row)
             session.flush()
+
+        strategy_id = strategy_row.id
 
         for scraper_cfg in scrapers:
             source_name = scraper_cfg.get("name", "unknown")
@@ -123,6 +247,8 @@ def run_scrape_cycle(strategy_name: str) -> dict:
             except ScraperError:
                 logger.error("Skipping source %s after fetch failure", source_name)
                 continue
+
+            all_scraped_articles.extend(articles)
 
             if settings.dry_run:
                 logger.info("[DRY RUN] %s: would process %d articles", source_name, len(articles))
@@ -144,6 +270,12 @@ def run_scrape_cycle(strategy_name: str) -> dict:
                         "Error processing article %s", article.get("url")
                     )
                     counts["error"] += 1
+
+    # Suggest new Kalshi signal categories from this cycle's articles
+    if all_scraped_articles and not settings.dry_run:
+        from app.services.notifications.telegram_notifier import TelegramNotifier
+        notifier = TelegramNotifier()
+        _suggest_kalshi_categories(all_scraped_articles, strategy_id, notifier)
 
     logger.info(
         "Scrape cycle complete for %s: %s",
@@ -323,14 +455,6 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
         gap_ratio = float(gap.get("gap_ratio", 1.0))
         confidence = min(gap_ratio / 10.0, 1.0)
 
-        _write_signal(
-            strategy_id=strategy_id,
-            ticker=entity,
-            signal_type="coverage_gap",
-            confidence=confidence,
-            raw=gap,
-        )
-
         try:
             thesis = llm.generate_thesis(gap, strategy_id or 0)
         except Exception as exc:
@@ -341,27 +465,27 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
                 f"(gap ratio: {gap_ratio:.1f}x)."
             )
 
-        opportunity = {
-            "ticker": entity,
-            "topic": "coverage_gap",
-            "thesis": thesis,
-            "western_count": gap.get("western_count", 0),
-            "asia_count": gap.get("asia_count", 0),
-            "gap_ratio": gap_ratio,
-            "amount": 10_000.0,
-            "stop_loss_pct": 15.0,   # Layer B: wider stop (structural trade)
-            "strategy_id": strategy_id,
-            "confluence_score": confidence,
-        }
+        # Resolve geographic entity to tradeable ticker + company name
+        resolved = llm.extract_tickers(thesis=thesis, entity=entity, direction="bullish")
+        primary = resolved[0]
+        primary_ticker = primary["ticker"]
+        primary_name = primary["name"]
+        equity_label = (
+            f"{primary_name} ({primary_ticker})"
+            if primary_name != primary_ticker
+            else primary_ticker
+        )
 
-        try:
-            _async_notify(notifier.send_opportunity_alert(opportunity))
-            counts["opportunities_sent"] += 1
-        except Exception as exc:
-            logger.error("Failed to send opportunity alert for %s: %s", entity, exc)
+        _write_signal(
+            strategy_id=strategy_id,
+            ticker=primary_ticker,
+            signal_type="coverage_gap",
+            confidence=confidence,
+            raw=gap,
+        )
 
-        # Also search Kalshi for related prediction markets
-        _find_kalshi_opportunities(
+        # Kalshi confluence check — get sentiment divergence modifier
+        confluence_boost, _ = _find_kalshi_opportunities(
             entity=entity,
             signal_type="coverage_gap",
             direction="bullish",
@@ -370,6 +494,26 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
             notifier=notifier,
             llm=llm,
         )
+        adjusted_confidence = round(min(confidence + confluence_boost, 1.0), 2)
+
+        opportunity = {
+            "ticker": primary_ticker,
+            "topic": "coverage_gap",
+            "thesis": f"Primary equity: {equity_label}\n\n{thesis}",
+            "western_count": gap.get("western_count", 0),
+            "asia_count": gap.get("asia_count", 0),
+            "gap_ratio": gap_ratio,
+            "amount": 10_000.0,
+            "stop_loss_pct": 15.0,   # Layer B: wider stop (structural trade)
+            "strategy_id": strategy_id,
+            "confluence_score": adjusted_confidence,
+        }
+
+        try:
+            _async_notify(notifier.send_opportunity_alert(opportunity))
+            counts["opportunities_sent"] += 1
+        except Exception as exc:
+            logger.error("Failed to send opportunity alert for %s: %s", entity, exc)
 
     return counts
 
@@ -497,17 +641,48 @@ def run_detection_cycle(strategy_name: str) -> dict:
                 f"(gap ratio: {gap_ratio:.1f}x)."
             )
 
+        # Resolve geographic entity to tradeable ticker + company name
+        resolved = llm.extract_tickers(thesis=thesis, entity=entity, direction="bullish")
+        primary = resolved[0]
+        primary_ticker = primary["ticker"]
+        primary_name = primary["name"]
+        equity_label = (
+            f"{primary_name} ({primary_ticker})"
+            if primary_name != primary_ticker
+            else primary_ticker
+        )
+
+        _write_signal(
+            strategy_id=strategy_id,
+            ticker=primary_ticker,
+            signal_type="coverage_gap",
+            confidence=confidence,
+            raw=gap,
+        )
+
+        # Kalshi confluence check — get sentiment divergence modifier
+        confluence_boost, _ = _find_kalshi_opportunities(
+            entity=entity,
+            signal_type="coverage_gap",
+            direction="bullish",
+            context=f"Coverage gap: {entity} — {gap.get('asia_count', 0)} Asian vs {gap.get('western_count', 0)} Western articles",
+            strategy_id=strategy_id,
+            notifier=notifier,
+            llm=llm,
+        )
+        adjusted_confidence = round(min(confidence + confluence_boost, 1.0), 2)
+
         opportunity = {
-            "ticker": entity,
+            "ticker": primary_ticker,
             "topic": "coverage_gap",
-            "thesis": thesis,
+            "thesis": f"Primary equity: {equity_label}\n\n{thesis}",
             "western_count": gap.get("western_count", 0),
             "asia_count": gap.get("asia_count", 0),
             "gap_ratio": gap_ratio,
             "amount": 10_000.0,
-            "stop_loss_pct": 5.0,
+            "stop_loss_pct": 15.0,   # Layer B: wider stop (structural trade)
             "strategy_id": strategy_id,
-            "confluence_score": confidence,
+            "confluence_score": adjusted_confidence,
         }
 
         try:
@@ -515,6 +690,14 @@ def run_detection_cycle(strategy_name: str) -> dict:
             counts["opportunities_sent"] += 1
         except Exception as exc:
             logger.error("detection_cycle: alert failed for %s: %s", entity, exc)
+
+    # ── Proactive Kalshi scan (high-probability markets as direct signals) ────
+    kalshi_direct = _surface_kalshi_market_signals(
+        strategy_id=strategy_id,
+        notifier=notifier,
+        llm=llm,
+    )
+    counts["opportunities_sent"] += kalshi_direct
 
     logger.info(
         "Detection cycle complete for %s: %s",
@@ -702,14 +885,20 @@ def _find_kalshi_opportunities(
     strategy_id: int | None,
     notifier,
     llm,
-) -> int:
+) -> tuple[float, int]:
     """Search Kalshi for markets relevant to a signal and create opportunities.
 
+    Also computes a confluence delta based on how Kalshi odds compare to the
+    signal direction.  If prediction market participants are pricing AGAINST
+    what the signal suggests (Western blind spot confirmed in two places), the
+    delta is positive.  If they already agree, it's slightly negative.
+
     Returns:
-        Number of Kalshi opportunity alerts sent.
+        Tuple of (confluence_delta: float, opps_sent: int).
+        confluence_delta is in range [-0.10, +0.25] — add to signal confidence.
     """
     if not settings.kalshi_api_key:
-        return 0
+        return 0.0, 0
 
     from app.services.trading.kalshi_interface import KalshiInterface
     from app.services.analysis.kalshi_market_finder import KalshiMarketFinder
@@ -725,9 +914,11 @@ def _find_kalshi_opportunities(
         )
     except Exception as exc:
         logger.warning("_find_kalshi_opportunities: finder failed for %r: %s", entity, exc)
-        return 0
+        return 0.0, 0
 
     sent = 0
+    best_confluence_delta = 0.0
+
     for candidate in candidates:
         market_ticker = candidate.get("market_ticker", "")
         if not market_ticker:
@@ -739,15 +930,46 @@ def _find_kalshi_opportunities(
         rationale = candidate.get("llm_rationale", "")
         title = candidate.get("title", market_ticker)
 
+        # Compute confluence delta: how much do Kalshi odds diverge from our signal?
+        # Bullish signal + Kalshi pricing it cheap (YES < 40) = Western blind spot confirmed
+        # Bullish signal + Kalshi already priced high (YES > 60) = already known, weaker
+        if direction == "bullish":
+            if yes_price < 40:
+                delta = 0.20   # strong divergence — same blind spot in two places
+            elif yes_price > 60:
+                delta = -0.10  # market ahead of us, weaker edge
+            else:
+                delta = 0.0
+        else:  # bearish
+            if yes_price > 60:
+                delta = 0.20
+            elif yes_price < 40:
+                delta = -0.10
+            else:
+                delta = 0.0
+
+        if delta > best_confluence_delta:
+            best_confluence_delta = delta
+
+        if abs(delta) < 0.05:  # neutral — no Kalshi alert needed
+            continue
+
         contract_price = yes_price if side == "yes" else (100 - yes_price)
         suggested_contracts = max(5, int(200 / max(contract_price, 1)))
         suggested_amount = round(suggested_contracts * contract_price / 100, 2)
+
+        divergence_note = (
+            f"⚡ Kalshi odds ({yes_price}¢ YES) CONTRADICT signal — Western blind spot confirmed."
+            if delta > 0
+            else f"⚠️ Kalshi odds ({yes_price}¢ YES) already pricing this in — weaker edge."
+        )
 
         opportunity = {
             "ticker": market_ticker,
             "topic": signal_type,
             "thesis": (
                 f"Kalshi market: {title}\n\n"
+                f"{divergence_note}\n\n"
                 f"Recommended: {side.upper()} @ {contract_price}¢/contract\n"
                 f"Relevance to signal: {relevance:.0%}\n\n"
                 f"{rationale}"
@@ -777,11 +999,162 @@ def _find_kalshi_opportunities(
             _async_notify(notifier.send_kalshi_opportunity_alert(opportunity))
             sent += 1
             logger.info(
-                "_find_kalshi: sent alert %s %s @ %d¢ (relevance=%.2f)",
-                market_ticker, side, contract_price, relevance,
+                "_find_kalshi: sent alert %s %s @ %d¢ (relevance=%.2f, delta=%.2f)",
+                market_ticker, side, contract_price, relevance, delta,
             )
         except Exception as exc:
             logger.error("_find_kalshi: alert failed for %s: %s", market_ticker, exc)
+
+    return best_confluence_delta, sent
+
+
+# ── Kalshi signal categories (static baseline) ────────────────────────────────
+_KALSHI_SIGNAL_CATEGORIES: dict[str, list[str]] = {
+    "rates":        ["Fed rate cut", "interest rate", "FOMC"],
+    "trade":        ["tariff", "trade deal", "sanctions"],
+    "geopolitical": ["election", "conflict", "military aid"],
+    "energy":       ["oil price", "OPEC"],
+}
+
+
+def _surface_kalshi_market_signals(
+    strategy_id: int | None,
+    notifier,
+    llm,
+    yes_threshold: int = 65,
+) -> int:
+    """Surface high-probability Kalshi markets as direct trade opportunities.
+
+    Polls Kalshi using static ``_KALSHI_SIGNAL_CATEGORIES`` plus any
+    DB-approved terms from the ``kalshi_categories`` table.  Markets with
+    YES >= yes_threshold or YES <= (100 - yes_threshold) are surfaced.
+
+    Returns:
+        Number of Kalshi opportunity alerts sent.
+    """
+    if not settings.kalshi_api_key:
+        return 0
+
+    from app.services.trading.kalshi_interface import KalshiInterface, KalshiError
+    from app.models import Opportunity
+
+    # Build search terms: static baseline + DB-approved
+    search_terms: list[str] = []
+    for terms in _KALSHI_SIGNAL_CATEGORIES.values():
+        search_terms.extend(terms)
+
+    try:
+        from app.models.kalshi_category import KalshiCategory
+        with db_session() as db:
+            approved = (
+                db.query(KalshiCategory)
+                .filter(KalshiCategory.status == "approved")
+                .all()
+            )
+            search_terms.extend(row.term for row in approved)
+    except Exception as exc:
+        logger.debug("_surface_kalshi_market_signals: could not load approved categories: %s", exc)
+
+    try:
+        kalshi = KalshiInterface()
+    except Exception as exc:
+        logger.warning("_surface_kalshi_market_signals: KalshiInterface init failed: %s", exc)
+        return 0
+
+    no_threshold = 100 - yes_threshold
+    seen_tickers: set[str] = set()
+    dedup_cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
+    sent = 0
+
+    for term in search_terms:
+        try:
+            markets = kalshi.find_markets(term, limit=10)
+        except KalshiError as exc:
+            logger.debug("_surface_kalshi_market_signals: search %r failed: %s", term, exc)
+            continue
+
+        for market in markets:
+            ticker = market.get("ticker") or market.get("market_ticker", "")
+            if not ticker or ticker in seen_tickers:
+                continue
+            seen_tickers.add(ticker)
+
+            yes_price = int(market.get("yes_price", 50))
+            if yes_price < yes_threshold and yes_price > no_threshold:
+                continue  # not a strong enough signal
+
+            # 24h dedup
+            with db_session() as db:
+                existing = (
+                    db.query(Opportunity)
+                    .filter(
+                        Opportunity.kalshi_market_id == ticker,
+                        Opportunity.status.in_(["pending", "approved"]),
+                        Opportunity.created_at >= dedup_cutoff,
+                    )
+                    .first()
+                )
+            if existing:
+                continue
+
+            title = market.get("title", ticker)
+            side = "yes" if yes_price >= yes_threshold else "no"
+            contract_price = yes_price if side == "yes" else (100 - yes_price)
+            suggested_contracts = max(5, int(200 / max(contract_price, 1)))
+            suggested_amount = round(suggested_contracts * contract_price / 100, 2)
+            confidence = round(contract_price / 100.0, 2)
+
+            try:
+                thesis_body = llm.generate_raw(
+                    f"In 2 sentences, explain why this Kalshi prediction market "
+                    f"at {contract_price}¢ represents a strong trading opportunity:\n"
+                    f"Market: {title}\n"
+                    f"Side: {side.upper()}\n"
+                    f"Be concise and actionable.",
+                    temperature=0.5,
+                    max_tokens=150,
+                )
+            except Exception:
+                thesis_body = f"High-probability Kalshi market at {contract_price}¢ — direct YES/NO signal."
+
+            opportunity = {
+                "ticker": ticker,
+                "topic": "kalshi_high_prob",
+                "thesis": (
+                    f"Kalshi market: {title}\n\n"
+                    f"YES: {yes_price}¢  NO: {100 - yes_price}¢\n\n"
+                    f"{thesis_body}"
+                ),
+                "western_count": 0,
+                "asia_count": 0,
+                "gap_ratio": 0.0,
+                "amount": suggested_amount,
+                "stop_loss_pct": 0.0,
+                "strategy_id": strategy_id,
+                "confluence_score": confidence,
+                "market_type": "kalshi",
+                "kalshi_market_id": ticker,
+                "kalshi_side": side,
+                "kalshi_yes_price": yes_price,
+            }
+
+            _write_signal(
+                strategy_id=strategy_id,
+                ticker=ticker,
+                signal_type="kalshi_high_prob",
+                confidence=confidence,
+                raw={"market_ticker": ticker, "yes_price": yes_price, "title": title},
+            )
+
+            try:
+                _async_notify(notifier.send_kalshi_opportunity_alert(opportunity))
+                sent += 1
+                logger.info(
+                    "_surface_kalshi: alert sent %s %s@%d¢",
+                    ticker, side.upper(), contract_price,
+                )
+            except Exception as exc:
+                logger.error("_surface_kalshi: alert failed for %s: %s", ticker, exc)
 
     return sent
 

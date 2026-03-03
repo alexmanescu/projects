@@ -124,10 +124,30 @@ _DEFAULT_SYSTEM = (
     "Provide direct, actionable analysis. Do not add disclaimers."
 )
 
+_TICKER_PROMPT = """\
+You are a stock market expert. Extract the most relevant publicly traded equities from the thesis below.
+
+Entity: {entity}
+Direction: {direction}
+Thesis: {thesis}
+
+Rules:
+- List up to 3 tickers, most relevant first
+- US-listed preferred (NYSE/NASDAQ); HK-listed allowed with suffix (e.g. 0939.HK, 7011.T)
+- Map company names to their primary stock listing
+- Use this exact format, one per line:
+TICKER: XYZ NAME: Full Company Name
+
+If no specific tradeable ticker can be identified, output:
+TICKER: NONE NAME: Unknown"""
+
 # ── Thinking-tag pattern (qwen3 and other reasoning models) ──────────────────
 
 _THINK_TAG_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
 _FLOAT_RE = re.compile(r"\b(1\.0+|0\.\d+)\b")
+_TICKER_LINE_RE = re.compile(
+    r"^TICKER:\s*([A-Z0-9.\-]{1,12})\s+NAME:\s*(.+)$", re.MULTILINE
+)
 
 
 # ── Main synthesizer ──────────────────────────────────────────────────────────
@@ -188,8 +208,9 @@ class LLMSynthesizer:
         Raises:
             LLMUnavailableError: When both backends fail after retries.
         """
+        import re
         prompt = self._build_thesis_prompt(pattern_data)
-        return self._route(
+        text = self._route(
             prompt=prompt,
             primary="ollama",
             fallback="claude",
@@ -197,6 +218,9 @@ class LLMSynthesizer:
             max_tokens=500,
             context=f"generate_thesis(strategy_id={strategy_id})",
         ).text
+        # Strip any echoed header the LLM may prepend (e.g. "**THESIS:**\n\n")
+        text = re.sub(r"^\*{0,2}THESIS:?\*{0,2}\s*", "", text, flags=re.IGNORECASE).strip()
+        return text
 
     def analyze_exit_signal(self, position: dict, recent_news: list[dict]) -> str:
         """Analyse whether an open position should be held, reduced, or exited.
@@ -289,6 +313,49 @@ class LLMSynthesizer:
             max_tokens=max_tokens,
             context="generate_raw",
         ).text
+
+    def extract_tickers(
+        self,
+        thesis: str,
+        entity: str,
+        direction: str = "bullish",
+    ) -> list[dict]:
+        """Extract tradeable tickers + company names from a generated thesis.
+
+        Runs a structured second-pass LLM call at temperature 0.1 so output
+        is deterministic.  Returns up to 3 dicts with ``ticker`` and ``name``.
+        Falls back to ``[{"ticker": entity, "name": entity}]`` on any failure.
+
+        Args:
+            thesis: The LLM-generated thesis text.
+            entity: Geographic/topical entity (e.g. "Japan") — used as fallback.
+            direction: "bullish" or "bearish" — influences ticker selection.
+
+        Returns:
+            List of 1–3 dicts: ``[{"ticker": "7011.T", "name": "Mitsubishi Heavy Industries"}, ...]``
+        """
+        prompt = _TICKER_PROMPT.format(
+            entity=entity,
+            direction=direction,
+            thesis=thesis,
+        )
+        try:
+            raw = self._route(
+                prompt=prompt,
+                primary="ollama",
+                fallback="claude",
+                temperature=0.1,
+                max_tokens=150,
+                context=f"extract_tickers(entity={entity})",
+            ).text
+            tickers = _parse_ticker_lines(raw)
+            if tickers:
+                logger.info("extract_tickers(%r): resolved → %s", entity, tickers)
+                return tickers
+        except Exception as exc:
+            logger.warning("extract_tickers: failed for %r: %s", entity, exc)
+
+        return [{"ticker": entity, "name": entity}]
 
     def is_available(self) -> bool:
         """Return True if at least one backend is reachable."""
@@ -599,3 +666,14 @@ class LLMSynthesizer:
                 return val
         logger.debug("_parse_float: could not parse %r — using default %.2f", text, default)
         return default
+
+
+def _parse_ticker_lines(text: str) -> list[dict]:
+    """Extract TICKER/NAME pairs from LLM output, excluding NONE sentinel."""
+    text = _THINK_TAG_RE.sub("", text).strip()
+    results = []
+    for ticker, name in _TICKER_LINE_RE.findall(text):
+        if ticker.upper() == "NONE":
+            continue
+        results.append({"ticker": ticker.upper(), "name": name.strip()})
+    return results[:3]

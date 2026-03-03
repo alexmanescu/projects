@@ -66,6 +66,29 @@ class TelegramNotifier:
             logger.error("send_message failed: %s", exc)
             return False
 
+    async def send_message_get_id(self, message: str, parse_mode: str = "HTML") -> int | None:
+        """Send *message* and return the Telegram ``message_id`` (for reply-based approval).
+
+        Returns:
+            Integer message_id on success, ``None`` on failure.
+        """
+        if not self._token or not self._chat_id:
+            return None
+
+        try:
+            from telegram import Bot
+
+            async with Bot(self._token) as bot:
+                sent = await bot.send_message(
+                    chat_id=self._chat_id,
+                    text=message,
+                    parse_mode=parse_mode,
+                )
+            return sent.message_id
+        except Exception as exc:
+            logger.error("send_message_get_id failed: %s", exc)
+            return None
+
     # ── Opportunity alert ─────────────────────────────────────────────────────
 
     async def send_opportunity_alert(self, opportunity: dict) -> int:

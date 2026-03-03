@@ -7,6 +7,7 @@ from app.models.opportunity import Opportunity
 from app.models.trade import Trade
 from app.models.position import Position
 from app.models.worker_control import WorkerControl
+from app.models.kalshi_category import KalshiCategory
 
 __all__ = [
     "Strategy",
@@ -18,4 +19,5 @@ __all__ = [
     "Trade",
     "Position",
     "WorkerControl",
+    "KalshiCategory",
 ]
