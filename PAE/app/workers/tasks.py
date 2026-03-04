@@ -1010,10 +1010,15 @@ def _find_kalshi_opportunities(
 
 # ── Kalshi signal categories (static baseline) ────────────────────────────────
 _KALSHI_SIGNAL_CATEGORIES: dict[str, list[str]] = {
-    "rates":        ["Fed rate cut", "interest rate", "FOMC"],
-    "trade":        ["tariff", "trade deal", "sanctions"],
-    "geopolitical": ["election", "conflict", "military aid"],
-    "energy":       ["oil price", "OPEC"],
+    "rates":        ["Fed rate cut", "interest rate", "FOMC", "recession", "inflation"],
+    "trade":        ["tariff", "trade deal", "sanctions", "China trade", "export controls"],
+    "geopolitical": ["election", "conflict", "military aid", "ceasefire", "invasion"],
+    "leadership":   ["Iran", "Russia", "North Korea", "China president", "prime minister",
+                     "supreme leader", "coup", "regime"],
+    "tech_policy":  ["semiconductor", "AI regulation", "TikTok", "chip export"],
+    "energy":       ["oil price", "OPEC", "natural gas", "LNG", "energy crisis"],
+    "markets":      ["government shutdown", "debt ceiling", "default", "treasury"],
+    "taiwan":       ["Taiwan", "Taiwan Strait", "TSMC", "reunification"],
 }
 
 
@@ -1092,8 +1097,22 @@ def _surface_kalshi_market_signals(
             mkt_category = (
                 market.get("category") or market.get("event_category") or ""
             ).lower().strip()
-            logger.debug("_surface_kalshi: ticker=%s category=%r", ticker, mkt_category)
-            if any(blocked in mkt_category for blocked in ("sport", "entertainment", "pop culture", "award", "nba", "nfl", "nhl", "mlb")):
+            mkt_title = (market.get("title") or market.get("subtitle") or "").lower()
+            _SPORT_BLOCKED = (
+                "sport", "entertainment", "pop culture", "award",
+                "nba", "nfl", "nhl", "mlb", "nascar", "golf",
+            )
+            _SPORT_TITLE_KW = (
+                "points", "rebounds", "assists", "touchdowns", "goals",
+                "james", "lebron", "westbrook", "curry", "mahomes",
+            )
+            logger.debug("_surface_kalshi: ticker=%s category=%r title=%r", ticker, mkt_category, mkt_title)
+            if (
+                any(blocked in mkt_category for blocked in _SPORT_BLOCKED)
+                or any(kw in mkt_title for kw in _SPORT_TITLE_KW)
+                or "crosscategory" in ticker.lower()
+                or ticker.upper().startswith("KXMVE")
+            ):
                 continue
 
             # 24h dedup

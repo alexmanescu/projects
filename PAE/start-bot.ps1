@@ -16,4 +16,4 @@ if (-not (Test-Path $VENV_PYTHON)) {
 
 Write-Host "==> Starting PAE Telegram bot listener..."
 Set-Location $PAE_DIR
-& $VENV_PYTHON -m app.workers.bot_listener
+& $VENV_PYTHON scripts/run_telegram_bot.py

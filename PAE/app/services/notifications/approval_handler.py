@@ -433,20 +433,82 @@ class ApprovalHandler:
             if vote == "YES":
                 cat.status = "approved"
                 cat.approved_at = datetime.now(timezone.utc)
+                approved_term = cat.term
                 await update.message.reply_text(
-                    f"✅ Category <b>{cat.term}</b> approved — active next cycle.",
+                    f"✅ Category <b>{cat.term}</b> approved — scanning Kalshi now…",
                     parse_mode="HTML",
                 )
                 logger.info("Kalshi category %r approved via Telegram reply", cat.term)
             else:
                 cat.status = "rejected"
+                approved_term = None
                 await update.message.reply_text(
                     f"🚫 Category <b>{cat.term}</b> rejected.",
                     parse_mode="HTML",
                 )
                 logger.info("Kalshi category %r rejected via Telegram reply", cat.term)
 
+        if approved_term:
+            await self._spot_scan_kalshi(approved_term)
+
         return True
+
+    async def _spot_scan_kalshi(self, term: str) -> None:
+        """Immediately scan Kalshi for *term* and alert on any high-probability markets."""
+        from app.services.trading.kalshi_interface import KalshiInterface, KalshiError
+
+        _YES_THRESHOLD = 65
+        _SPORT_BLOCKED = (
+            "sport", "entertainment", "pop culture", "award",
+            "nba", "nfl", "nhl", "mlb", "nascar", "golf",
+        )
+        _SPORT_TITLE_KW = (
+            "points", "rebounds", "assists", "touchdowns", "goals",
+            "james", "lebron", "westbrook", "curry", "mahomes",
+        )
+
+        try:
+            kalshi = KalshiInterface()
+            markets = kalshi.find_markets(term, limit=20)
+        except KalshiError as exc:
+            logger.warning("_spot_scan_kalshi(%r) failed: %s", term, exc)
+            await self._notifier.send_message(
+                f"⚠️ Kalshi scan for <b>{term}</b> failed: {exc}"
+            )
+            return
+
+        hits = []
+        for m in markets:
+            yes_price = int(m.get("yes_price", 50))
+            if yes_price < _YES_THRESHOLD and yes_price > (100 - _YES_THRESHOLD):
+                continue
+
+            mkt_category = (m.get("category") or m.get("event_category") or "").lower()
+            mkt_title = (m.get("title") or m.get("subtitle") or "").lower()
+            ticker = m.get("ticker") or m.get("market_ticker", "")
+
+            if (
+                any(b in mkt_category for b in _SPORT_BLOCKED)
+                or any(k in mkt_title for k in _SPORT_TITLE_KW)
+                or "crosscategory" in ticker.lower()
+                or ticker.upper().startswith("KXMVE")
+            ):
+                continue
+
+            side = "YES" if yes_price >= _YES_THRESHOLD else "NO"
+            price = yes_price if side == "YES" else (100 - yes_price)
+            hits.append((ticker, side, price, m.get("title") or ticker))
+
+        if not hits:
+            await self._notifier.send_message(
+                f"🔍 Spot scan for <b>{term}</b>: no markets above {_YES_THRESHOLD}% threshold right now."
+            )
+            return
+
+        lines = [f"🔍 <b>SPOT SCAN — {term}</b>\n"]
+        for ticker, side, price, title in hits[:5]:
+            lines.append(f"• <code>{ticker}</code>\n  {title}\n  {side} @ {price}¢\n")
+        await self._notifier.send_message("\n".join(lines))
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
