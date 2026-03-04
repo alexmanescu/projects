@@ -189,6 +189,41 @@ def _suggest_kalshi_categories(articles: list[dict], strategy_id: int | None, no
     return sent
 
 
+def _share_price_ok(ticker: str) -> bool:
+    """Return True if *ticker*'s current share price is within settings.max_share_price.
+
+    Returns True on any lookup failure so international tickers or
+    temporary API issues don't silently drop opportunities.
+    """
+    if not settings.max_share_price or settings.max_share_price <= 0:
+        return True
+    if not ticker or ticker.upper() == "NONE":
+        return False
+    # Skip if ticker looks like a non-US exchange symbol
+    if "." in ticker and not ticker.endswith(".US"):
+        logger.info("_share_price_ok: %s has exchange suffix — not US-listed, skipping", ticker)
+        return False
+    try:
+        from alpaca.data.historical import StockHistoricalDataClient
+        from alpaca.data.requests import StockLatestTradeRequest
+        client = StockHistoricalDataClient(
+            api_key=settings.alpaca_api_key,
+            secret_key=settings.alpaca_secret_key,
+        )
+        trades = client.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols=ticker))
+        price = float(trades[ticker].price)
+        if price > settings.max_share_price:
+            logger.info(
+                "_share_price_ok: %s @ $%.2f exceeds max $%.2f — skipping",
+                ticker, price, settings.max_share_price,
+            )
+            return False
+        return True
+    except Exception as exc:
+        logger.debug("_share_price_ok: price check failed for %s (%s) — allowing", ticker, exc)
+        return True  # can't verify → allow through
+
+
 def run_scrape_cycle(strategy_name: str) -> dict:
     """Execute one full scrape → analyse → signal cycle for *strategy_name*.
 
@@ -476,6 +511,10 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
             else primary_ticker
         )
 
+        if not _share_price_ok(primary_ticker):
+            logger.info("gap_loop: skipping %s — share price above max or non-US ticker", primary_ticker)
+            continue
+
         _write_signal(
             strategy_id=strategy_id,
             ticker=primary_ticker,
@@ -651,6 +690,10 @@ def run_detection_cycle(strategy_name: str) -> dict:
             if primary_name != primary_ticker
             else primary_ticker
         )
+
+        if not _share_price_ok(primary_ticker):
+            logger.info("detection_gap_loop: skipping %s — share price above max or non-US ticker", primary_ticker)
+            continue
 
         _write_signal(
             strategy_id=strategy_id,

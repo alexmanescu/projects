@@ -52,19 +52,25 @@ class TelegramNotifier:
             )
             return False
 
-        try:
-            from telegram import Bot
+        import asyncio
+        from telegram import Bot
 
-            async with Bot(self._token) as bot:
-                await bot.send_message(
-                    chat_id=self._chat_id,
-                    text=message,
-                    parse_mode=parse_mode,
-                )
-            return True
-        except Exception as exc:
-            logger.error("send_message failed: %s", exc)
-            return False
+        for attempt in range(2):
+            try:
+                async with Bot(self._token) as bot:
+                    await bot.send_message(
+                        chat_id=self._chat_id,
+                        text=message,
+                        parse_mode=parse_mode,
+                    )
+                return True
+            except Exception as exc:
+                if attempt == 0:
+                    logger.warning("send_message failed (attempt 1), retrying in 3s: %s", exc)
+                    await asyncio.sleep(3)
+                else:
+                    logger.error("send_message failed: %s", exc)
+                    return False
 
     async def send_message_get_id(self, message: str, parse_mode: str = "HTML") -> int | None:
         """Send *message* and return the Telegram ``message_id`` (for reply-based approval).
@@ -75,19 +81,25 @@ class TelegramNotifier:
         if not self._token or not self._chat_id:
             return None
 
-        try:
-            from telegram import Bot
+        import asyncio
+        from telegram import Bot
 
-            async with Bot(self._token) as bot:
-                sent = await bot.send_message(
-                    chat_id=self._chat_id,
-                    text=message,
-                    parse_mode=parse_mode,
-                )
-            return sent.message_id
-        except Exception as exc:
-            logger.error("send_message_get_id failed: %s", exc)
-            return None
+        for attempt in range(2):
+            try:
+                async with Bot(self._token) as bot:
+                    sent = await bot.send_message(
+                        chat_id=self._chat_id,
+                        text=message,
+                        parse_mode=parse_mode,
+                    )
+                return sent.message_id
+            except Exception as exc:
+                if attempt == 0:
+                    logger.warning("send_message_get_id failed (attempt 1), retrying in 3s: %s", exc)
+                    await asyncio.sleep(3)
+                else:
+                    logger.error("send_message_get_id failed: %s", exc)
+                    return None
 
     # ── Opportunity alert ─────────────────────────────────────────────────────
 

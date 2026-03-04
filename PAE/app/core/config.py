@@ -60,6 +60,10 @@ class Settings(BaseSettings):
     paper_trading: bool = Field(default=True, description="Use Alpaca paper account instead of live")
     kalshi_live: bool = Field(default=False, description="Place real Kalshi orders (dry_run must also be False)")
     check_interval_minutes: int = Field(default=60)
+    max_share_price: float = Field(
+        default=50.0,
+        description="Skip equity opportunities where the current share price exceeds this (USD). Set to 0 to disable.",
+    )
     log_level: str = Field(default="INFO")
 
 

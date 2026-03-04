@@ -133,12 +133,13 @@ Thesis: {thesis}
 
 Rules:
 - List up to 3 tickers, most relevant first
-- US-listed preferred (NYSE/NASDAQ); HK-listed allowed with suffix (e.g. 0939.HK, 7011.T)
-- Map company names to their primary stock listing
+- ONLY US-listed stocks (NYSE/NASDAQ). For foreign companies use their US ADR ticker (e.g. TSM not 2330.TW, BABA not 9988.HK, NIO not NIO.HK)
+- Do NOT output tickers with foreign exchange suffixes (.T, .KS, .HK, .TW, .L, etc.)
+- Prefer lower share-price stocks (under $50) and relevant ETFs when a good match exists
 - Use this exact format, one per line:
 TICKER: XYZ NAME: Full Company Name
 
-If no specific tradeable ticker can be identified, output:
+If no US-listed equity or ADR exists for this entity, output:
 TICKER: NONE NAME: Unknown"""
 
 # ── Thinking-tag pattern (qwen3 and other reasoning models) ──────────────────
