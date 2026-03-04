@@ -88,7 +88,7 @@ class KalshiInterface:
         # ── Strategy 1: events with nested markets (title-filtered) ───────────
         try:
             data = self._get("/events", params={
-                "status": "active",
+                "status": "open",
                 "limit": 100,
                 "with_nested_markets": "true",
             })
@@ -107,7 +107,7 @@ class KalshiInterface:
 
         # ── Strategy 2: /markets fallback (title-filtered) ────────────────────
         try:
-            data = self._get("/markets", params={"status": "active", "limit": 200})
+            data = self._get("/markets", params={"status": "open", "limit": 200})
             for m in data.get("markets", []):
                 if not _title_matches(m.get("title", "")):
                     continue

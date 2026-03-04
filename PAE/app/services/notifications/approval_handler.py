@@ -183,7 +183,9 @@ class ApprovalHandler:
 
             ticker = opp.ticker
             conviction = self._score_to_conviction(float(opp.confluence_score or 0.5))
-            stop_loss_pct = float(opp.stop_loss_pct or 0.05)
+            # DB stores stop_loss_pct as a percentage (e.g. 15.0); position_manager expects decimal (e.g. 0.15)
+            raw_sl = float(opp.stop_loss_pct or 5.0)
+            stop_loss_pct = raw_sl / 100.0 if raw_sl > 1.0 else raw_sl
 
             try:
                 sizing = pm.validate_trade(ticker, conviction, stop_loss_pct)
