@@ -648,6 +648,23 @@ class ApprovalHandler:
             else primary_ticker
         )
 
+        # Fetch current share price for position sizing display
+        share_price: float | None = None
+        try:
+            from alpaca.data.historical import StockHistoricalDataClient
+            from alpaca.data.requests import StockLatestTradeRequest
+            from app.core.config import settings as _settings
+            _client = StockHistoricalDataClient(
+                api_key=_settings.alpaca_api_key,
+                secret_key=_settings.alpaca_secret_key,
+            )
+            _trades = _client.get_stock_latest_trade(
+                StockLatestTradeRequest(symbol_or_symbols=primary_ticker)
+            )
+            share_price = float(_trades[primary_ticker].price)
+        except Exception:
+            pass  # price unavailable — display falls back to flat amount
+
         new_opp = {
             "ticker": primary_ticker,
             "topic": f"review_of_{opp_id}",
@@ -659,6 +676,7 @@ class ApprovalHandler:
             "stop_loss_pct": stop_loss_pct,
             "strategy_id": strategy_id,
             "confluence_score": None,
+            "suggested_price": share_price,
         }
         await self._notifier.send_opportunity_alert(new_opp)
 

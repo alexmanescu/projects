@@ -114,11 +114,14 @@ def _suggest_kalshi_categories(articles: list[dict], strategy_id: int | None, no
         f"You are analyzing news headlines to find new prediction market signal categories.\n\n"
         f"Headlines:\n{titles_text}\n\n"
         f"Already tracked terms (do NOT suggest these): {existing_list}\n\n"
-        f"Identify up to 5 NEW specific geopolitical, economic, or commodity entities or events "
-        f"from these headlines that would make good Kalshi prediction market search terms. "
-        f"Be specific (e.g. 'Strait of Hormuz' not 'shipping').\n\n"
-        f"Output format (one per line):\n"
-        f"TERM: <search term> CATEGORY: <rates|trade|geopolitical|energy|other>"
+        f"Extract up to 5 NEW short search terms (2-4 words each) that would match titles of "
+        f"Kalshi prediction markets. Extract ONLY the key entity or topic — NOT the full headline.\n\n"
+        f"GOOD examples: 'Norway rare earth', 'Exxon Venezuela', 'Iran US attack', "
+        f"'Fed rate cut', 'Taiwan Strait', 'OPEC oil cut'\n"
+        f"BAD examples (too long — do NOT do this): 'Rare Earths Norway Says Estimate of Deposit', "
+        f"'Exxon to Send Team to Venezuela in a Few Weeks'\n\n"
+        f"Output format (one per line, term must be 2-4 words only):\n"
+        f"TERM: <2-4 word search term> CATEGORY: <rates|trade|geopolitical|energy|other>"
     )
 
     try:
@@ -144,6 +147,10 @@ def _suggest_kalshi_categories(articles: list[dict], strategy_id: int | None, no
     sent = 0
     for term, category in suggestions:
         term = term.strip()
+        # Hard cap: if LLM still returned a long phrase, keep only first 4 words
+        term_words = term.split()
+        if len(term_words) > 4:
+            term = " ".join(term_words[:4])
         category = category.strip().lower()
         if not term or term.lower() in existing_terms:
             continue

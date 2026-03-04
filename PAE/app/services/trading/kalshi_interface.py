@@ -50,33 +50,73 @@ class KalshiInterface:
         search_term: str,
         limit: int = 10,
     ) -> list[dict]:
-        """Return open Kalshi markets matching *search_term*.
+        """Return active Kalshi markets matching *search_term*.
+
+        The Kalshi REST API v2 does not support free-text search on the
+        ``/markets`` endpoint.  We use two strategies:
+
+        1. ``GET /events?status=active&with_nested_markets=true`` — fetch up to
+           100 events with their nested markets, then filter client-side by
+           whether any search word appears in the event title.
+        2. Fallback: ``GET /markets?status=active`` — fetch up to 200 markets
+           and filter client-side by market title.
 
         Args:
             search_term: Free-text query (e.g. "China tariff", "semiconductor").
             limit: Maximum results to return.
 
         Returns:
-            List of market dicts from the API, each augmented with
-            ``yes_price`` and ``no_price`` fields (cents, 0–99).
+            List of market dicts, each augmented with ``yes_price`` and
+            ``no_price`` fields (cents, 0–99).
         """
-        params = {
-            "status": "open",
-            "search": search_term,
-            "limit": min(limit, 100),
-        }
-        try:
-            data = self._get("/markets", params=params)
-            markets = data.get("markets", [])
-        except KalshiError as exc:
-            logger.warning("find_markets(%r) failed: %s", search_term, exc)
-            return []
+        # Build filter words — require length > 2 to skip common prepositions
+        search_words = [w for w in search_term.lower().split() if len(w) > 2]
+        if not search_words:
+            search_words = [search_term.lower()]
 
-        results = []
-        for m in markets:
-            yes_price = m.get("yes_ask") or m.get("yes_bid") or 50
-            no_price = 100 - yes_price
-            results.append({**m, "yes_price": yes_price, "no_price": no_price})
+        def _title_matches(title: str) -> bool:
+            t = (title or "").lower()
+            return any(w in t for w in search_words)
+
+        def _augment(m: dict) -> dict:
+            # Prefer bid (reliable mid-market proxy) over ask; last_price as fallback
+            yes_price = m.get("yes_bid") or m.get("yes_ask") or m.get("last_price") or 50
+            return {**m, "yes_price": yes_price, "no_price": 100 - yes_price}
+
+        results: list[dict] = []
+
+        # ── Strategy 1: events with nested markets (title-filtered) ───────────
+        try:
+            data = self._get("/events", params={
+                "status": "active",
+                "limit": 100,
+                "with_nested_markets": "true",
+            })
+            for event in data.get("events", []):
+                if not _title_matches(event.get("title", "")):
+                    continue
+                for m in event.get("markets", []):
+                    results.append(_augment(m))
+                    if len(results) >= limit:
+                        return results
+        except KalshiError as exc:
+            logger.warning("find_markets(%r): /events failed: %s", search_term, exc)
+
+        if results:
+            return results
+
+        # ── Strategy 2: /markets fallback (title-filtered) ────────────────────
+        try:
+            data = self._get("/markets", params={"status": "active", "limit": 200})
+            for m in data.get("markets", []):
+                if not _title_matches(m.get("title", "")):
+                    continue
+                results.append(_augment(m))
+                if len(results) >= limit:
+                    break
+        except KalshiError as exc:
+            logger.warning("find_markets(%r): /markets fallback failed: %s", search_term, exc)
+
         return results
 
     def get_market(self, market_ticker: str) -> dict:
