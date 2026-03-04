@@ -139,6 +139,22 @@ class TelegramNotifier:
 
         thesis_preview = (thesis[:300] + "...") if len(thesis) > 300 else thesis
 
+        # Fallback: fetch live price if tasks.py couldn't get it at scan time
+        if (not share_price or share_price <= 0) and opportunity.get("market_type", "us_stock") == "us_stock":
+            try:
+                from alpaca.data.historical import StockHistoricalDataClient
+                from alpaca.data.requests import StockLatestTradeRequest
+                _client = StockHistoricalDataClient(
+                    api_key=settings.alpaca_api_key,
+                    secret_key=settings.alpaca_secret_key,
+                )
+                _trades = _client.get_stock_latest_trade(
+                    StockLatestTradeRequest(symbol_or_symbols=ticker)
+                )
+                share_price = float(_trades[ticker].price)
+            except Exception:
+                pass  # remain with simple format if fetch fails
+
         if share_price and share_price > 0:
             shares = max(1, int(amount / share_price))
             max_loss_dollars = shares * share_price * stop_loss_pct / 100

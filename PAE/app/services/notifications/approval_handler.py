@@ -544,6 +544,8 @@ class ApprovalHandler:
             )
             return
 
+        from datetime import datetime, timezone
+
         hits = []
         for m in markets:
             yes_price = int(m.get("yes_price", 50))
@@ -561,6 +563,16 @@ class ApprovalHandler:
                 or ticker.upper().startswith("KXMVE")
             ):
                 continue
+
+            close_time_str = m.get("close_time") or m.get("expiration_time") or ""
+            if close_time_str:
+                try:
+                    close_dt = datetime.fromisoformat(close_time_str.replace("Z", "+00:00"))
+                    days_out = (close_dt - datetime.now(timezone.utc)).days
+                    if days_out > 7 or days_out < 0:
+                        continue
+                except (ValueError, TypeError):
+                    pass
 
             side = "YES" if yes_price >= _YES_THRESHOLD else "NO"
             price = yes_price if side == "YES" else (100 - yes_price)

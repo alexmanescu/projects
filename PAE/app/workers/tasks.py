@@ -768,7 +768,10 @@ def run_detection_cycle(strategy_name: str) -> dict:
     )
     notifier = TelegramNotifier()
 
-    for gap in gaps[:3]:
+    if _is_worker_paused("detect_stock"):
+        logger.info("detection_cycle: stock signal detection paused via Telegram")
+
+    for gap in (gaps[:3] if not _is_worker_paused("detect_stock") else []):
         entity = gap.get("entity") or gap.get("topic", "")
         if not entity:
             continue
@@ -851,12 +854,15 @@ def run_detection_cycle(strategy_name: str) -> dict:
             logger.error("detection_cycle: alert failed for %s: %s", entity, exc)
 
     # ── Proactive Kalshi scan (high-probability markets as direct signals) ────
-    kalshi_direct = _surface_kalshi_market_signals(
-        strategy_id=strategy_id,
-        notifier=notifier,
-        llm=llm,
-    )
-    counts["opportunities_sent"] += kalshi_direct
+    if _is_worker_paused("detect_kalshi"):
+        logger.info("detection_cycle: Kalshi proactive scan paused via Telegram")
+    else:
+        kalshi_direct = _surface_kalshi_market_signals(
+            strategy_id=strategy_id,
+            notifier=notifier,
+            llm=llm,
+        )
+        counts["opportunities_sent"] += kalshi_direct
 
     logger.info(
         "Detection cycle complete for %s: %s",
@@ -1273,6 +1279,17 @@ def _surface_kalshi_market_signals(
                 or ticker.upper().startswith("KXMVE")
             ):
                 continue
+
+            # Only surface markets closing within 7 days — keeps alerts actionable
+            close_time_str = market.get("close_time") or market.get("expiration_time") or ""
+            if close_time_str:
+                try:
+                    close_dt = datetime.fromisoformat(close_time_str.replace("Z", "+00:00"))
+                    days_out = (close_dt - datetime.now(timezone.utc)).days
+                    if days_out > 7 or days_out < 0:
+                        continue
+                except (ValueError, TypeError):
+                    pass  # unparseable date — let it through
 
             # 24h dedup
             with db_session() as db:

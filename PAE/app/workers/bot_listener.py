@@ -28,6 +28,8 @@ from app.core.database import db_session, init_db
 logger = logging.getLogger(__name__)
 
 _VALID_WORKERS = ("scrape", "detect")
+# Sub-controls for the detect worker — pauses specific detection lanes
+_DETECT_SUB = {"kalshi": "detect_kalshi", "stock": "detect_stock"}
 
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
@@ -52,14 +54,15 @@ def _set_paused(worker_name: str, paused: bool) -> None:
 
 
 def _get_all_states() -> dict[str, bool]:
-    """Return {worker_name: paused} for all known workers."""
+    """Return {worker_name: paused} for all known workers and sub-workers."""
     from app.models.worker_control import WorkerControl
 
+    all_names = list(_VALID_WORKERS) + list(_DETECT_SUB.values())
     with db_session() as db:
         rows = db.query(WorkerControl).filter(
-            WorkerControl.worker_name.in_(_VALID_WORKERS)
+            WorkerControl.worker_name.in_(all_names)
         ).all()
-        states = {w: False for w in _VALID_WORKERS}   # default: running
+        states = {w: False for w in all_names}   # default: running
         for row in rows:
             states[row.worker_name] = row.paused
         return states
@@ -74,37 +77,55 @@ async def cmd_status(update, context) -> None:
     for name in _VALID_WORKERS:
         icon = "⏸ PAUSED" if states.get(name) else "▶️ running"
         lines.append(f"• <b>{name}</b>: {icon}")
+        if name == "detect":
+            for sub_label, sub_key in _DETECT_SUB.items():
+                sub_icon = "⏸ PAUSED" if states.get(sub_key) else "▶️ running"
+                lines.append(f"  ↳ <b>{sub_label}</b>: {sub_icon}")
     await update.message.reply_html("\n".join(lines))
 
 
+def _resolve_targets(args: list[str]) -> list[str]:
+    """Map command args to worker_control names.
+
+    /pause detect kalshi  → ["detect_kalshi"]
+    /pause detect stock   → ["detect_stock"]
+    /pause detect         → ["detect"]
+    /pause scrape         → ["scrape"]
+    /pause                → ["scrape", "detect"]
+    """
+    if len(args) == 2 and args[0] == "detect" and args[1] in _DETECT_SUB:
+        return [_DETECT_SUB[args[1]]]
+    if args and args[0] in _VALID_WORKERS:
+        return [args[0]]
+    return list(_VALID_WORKERS)
+
+
 async def cmd_pause(update, context) -> None:
-    """Handle /pause [scrape|detect] — pause one or both workers."""
-    args = context.args
-    targets = [args[0]] if args and args[0] in _VALID_WORKERS else list(_VALID_WORKERS)
+    """Handle /pause [scrape|detect [kalshi|stock]] — pause worker or sub-lane."""
+    targets = _resolve_targets(context.args or [])
 
     for worker in targets:
         _set_paused(worker, True)
-        logger.info("bot_listener: paused worker %r", worker)
+        logger.info("bot_listener: paused %r", worker)
 
     names = " + ".join(targets)
     await update.message.reply_html(
-        f"⏸ <b>{names}</b> paused — will stop after current cycle completes.\n"
-        f"Send /resume {targets[0]} to restart."
+        f"⏸ <b>{names}</b> paused — takes effect after the current cycle.\n"
+        f"Send <code>/resume {' '.join(context.args or [targets[0]])}</code> to restart."
     )
 
 
 async def cmd_resume(update, context) -> None:
-    """Handle /resume [scrape|detect] — resume one or both workers."""
-    args = context.args
-    targets = [args[0]] if args and args[0] in _VALID_WORKERS else list(_VALID_WORKERS)
+    """Handle /resume [scrape|detect [kalshi|stock]] — resume worker or sub-lane."""
+    targets = _resolve_targets(context.args or [])
 
     for worker in targets:
         _set_paused(worker, False)
-        logger.info("bot_listener: resumed worker %r", worker)
+        logger.info("bot_listener: resumed %r", worker)
 
     names = " + ".join(targets)
     await update.message.reply_html(
-        f"▶️ <b>{names}</b> resumed — will run on next cycle check."
+        f"▶️ <b>{names}</b> resumed — active on next cycle."
     )
 
 
@@ -115,10 +136,14 @@ async def cmd_help(update, context) -> None:
         "/status — show worker states\n"
         "/pause scrape — pause Mac Mini scraper\n"
         "/pause detect — pause Windows detector\n"
-        "/pause — pause both\n"
+        "/pause detect kalshi — pause Kalshi opportunity scan only\n"
+        "/pause detect stock — pause stock coverage-gap alerts only\n"
+        "/pause — pause both workers\n"
         "/resume scrape — resume Mac Mini scraper\n"
         "/resume detect — resume Windows detector\n"
-        "/resume — resume both"
+        "/resume detect kalshi — resume Kalshi scan\n"
+        "/resume detect stock — resume stock alerts\n"
+        "/resume — resume both workers"
     )
 
 
