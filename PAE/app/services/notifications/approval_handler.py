@@ -95,6 +95,32 @@ class ApprovalHandler:
                 term = " ".join(parts[1:]).title()
                 await self.handle_addcat(term, update)
 
+            elif command == "REVIEW":
+                if len(parts) < 2:
+                    await update.message.reply_text(
+                        "Usage: <code>REVIEW &lt;id&gt; - &lt;hint&gt;</code>\n"
+                        "or: <code>REVIEW KALSHI &lt;search term&gt;</code>",
+                        parse_mode="HTML",
+                    )
+                elif parts[1] == "KALSHI":
+                    words = raw.split(None, 2)   # ["REVIEW", "KALSHI", "term..."]
+                    term = words[2].strip() if len(words) > 2 else ""
+                    if term:
+                        await self._handle_review_kalshi(term, update)
+                    else:
+                        await update.message.reply_text("Usage: REVIEW KALSHI <search term>")
+                else:
+                    try:
+                        opp_id = int(parts[1])
+                        dash_idx = raw.find(" - ")
+                        hint = raw[dash_idx + 3:].strip() if dash_idx != -1 else ""
+                        await self._handle_review_equity(opp_id, hint, update)
+                    except ValueError:
+                        await update.message.reply_text(
+                            "Usage: <code>REVIEW &lt;id&gt; - &lt;hint text&gt;</code>",
+                            parse_mode="HTML",
+                        )
+
             elif command == "STATUS":
                 await self.handle_status()
 
@@ -570,6 +596,80 @@ class ApprovalHandler:
             return "medium"
         return "low"
 
+    # ── Review / re-analysis ──────────────────────────────────────────────────
+
+    async def _handle_review_equity(
+        self, opp_id: int, hint: str, update: "Update"
+    ) -> None:
+        """Re-analyse an equity opportunity with a user-provided hint."""
+        from app.models import Opportunity
+        from app.core.database import db_session
+        from app.services.analysis.llm_synthesizer import LLMSynthesizer
+
+        with db_session() as db:
+            opp = db.query(Opportunity).filter(Opportunity.id == opp_id).first()
+            if not opp:
+                await update.message.reply_text(f"❌ Opportunity #{opp_id} not found.")
+                return
+            # Snapshot fields before session closes
+            thesis = opp.thesis or ""
+            ticker = opp.ticker or ""
+            entity = ticker  # use ticker as entity fallback
+            stop_loss_pct = float(opp.stop_loss_pct or 15.0)
+            suggested_amount = float(opp.suggested_amount or 10_000.0)
+            strategy_id = opp.primary_strategy_id
+
+        await update.message.reply_text(f"🔄 Re-analyzing opportunity #{opp_id}…")
+
+        llm = LLMSynthesizer()
+        result = llm.review_opportunity(
+            thesis=thesis,
+            entity=entity,
+            direction="bullish",
+            hint=hint or "Improve ticker selection and thesis specificity.",
+        )
+
+        revised_thesis = result.get("thesis", thesis)
+        tickers = result.get("tickers", [{"ticker": ticker, "name": ticker}])
+        primary = tickers[0]
+        primary_ticker = primary["ticker"]
+        primary_name = primary["name"]
+
+        if primary_ticker.upper() == "NONE":
+            await update.message.reply_text(
+                f"⚠️ LLM could not identify a valid US ticker based on the hint. "
+                f"Try being more specific about the company or sector."
+            )
+            return
+
+        equity_label = (
+            f"{primary_name} ({primary_ticker})"
+            if primary_name != primary_ticker
+            else primary_ticker
+        )
+
+        new_opp = {
+            "ticker": primary_ticker,
+            "topic": f"review_of_{opp_id}",
+            "thesis": f"[Re-analysis of #{opp_id}]\nPrimary equity: {equity_label}\n\n{revised_thesis}",
+            "western_count": 0,
+            "asia_count": 0,
+            "gap_ratio": 0.0,
+            "amount": suggested_amount,
+            "stop_loss_pct": stop_loss_pct,
+            "strategy_id": strategy_id,
+            "confluence_score": None,
+        }
+        await self._notifier.send_opportunity_alert(new_opp)
+
+    async def _handle_review_kalshi(self, term: str, update: "Update") -> None:
+        """One-shot Kalshi search for *term* — no DB category row written."""
+        await update.message.reply_text(
+            f"🔍 Searching Kalshi for: <b>{term}</b>…",
+            parse_mode="HTML",
+        )
+        await self._spot_scan_kalshi(term)
+
     @staticmethod
     def _help_text() -> str:
         return (
@@ -577,7 +677,8 @@ class ApprovalHandler:
             "<b>Opportunities:</b>\n"
             "• <code>YES {id}</code> — Approve and execute trade\n"
             "• <code>NO {id}</code>  — Reject opportunity\n"
-            "• <code>INFO {id}</code> — Show full details\n\n"
+            "• <code>INFO {id}</code> — Show full details\n"
+            "• <code>REVIEW {id} - {hint}</code> — Re-analyse with a note\n\n"
             "<b>Positions:</b>\n"
             "• <code>SELL {ticker}</code> — Close position\n"
             "• <code>HOLD {ticker}</code> — Acknowledge alert, keep monitoring\n\n"
@@ -586,5 +687,6 @@ class ApprovalHandler:
             "• <code>HELP</code>   — Show this message\n\n"
             "<b>Signal Categories:</b>\n"
             "• <code>ADDCAT {term}</code> — Manually add a Kalshi search term and scan immediately\n"
+            "• <code>REVIEW KALSHI {term}</code> — One-shot Kalshi search (no DB save)\n"
             "• Reply <code>YES</code> or <code>NO</code> to a 📡 suggestion — Approve or reject a suggested category"
         )

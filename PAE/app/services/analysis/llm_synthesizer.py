@@ -133,14 +133,45 @@ Thesis: {thesis}
 
 Rules:
 - List up to 3 tickers, most relevant first
-- ONLY US-listed stocks (NYSE/NASDAQ). For foreign companies use their US ADR ticker (e.g. TSM not 2330.TW, BABA not 9988.HK, NIO not NIO.HK)
+- ONLY US-listed stocks (NYSE/NASDAQ). For foreign companies use their US ADR ticker if one exists (e.g. TSM not 2330.TW, BABA not 9988.HK, NIO not NIO.HK)
 - Do NOT output tickers with foreign exchange suffixes (.T, .KS, .HK, .TW, .L, etc.)
 - Prefer lower share-price stocks (under $50) and relevant ETFs when a good match exists
+- CRITICAL: Only output ticker symbols you are CERTAIN exist on NYSE or NASDAQ. Do NOT guess or invent tickers. If you are not 100% sure a ticker is real and actively traded in the US, output NONE instead.
 - Use this exact format, one per line:
 TICKER: XYZ NAME: Full Company Name
 
-If no US-listed equity or ADR exists for this entity, output:
+Examples of correct ADR mappings: TSM (Taiwan Semiconductor), SONY (Sony Group), TM (Toyota Motor), BABA (Alibaba), NVO (Novo Nordisk)
+Examples of relevant ETFs: ITA (aerospace/defense), XLE (energy), SMH (semiconductors), EWJ (Japan equities), EWT (Taiwan equities), KWEB (China internet)
+
+If no US-listed equity or ADR exists for this entity, or if you are uncertain, output:
 TICKER: NONE NAME: Unknown"""
+
+_REVIEW_PROMPT = """\
+You are a financial analyst revising an investment thesis based on user feedback.
+
+Original Entity: {entity}
+Direction: {direction}
+Original Thesis:
+{thesis}
+
+User Feedback: {hint}
+
+Provide:
+1. A revised 2-3 sentence thesis that addresses the feedback
+2. Up to 3 US-listed tickers (NYSE/NASDAQ) most relevant to the revised thesis
+
+CRITICAL: Only output ticker symbols you are CERTAIN exist on NYSE or NASDAQ.
+Do NOT guess or invent tickers. Use ETFs (ITA, XLE, SMH, EWJ, EWT, KWEB) if no direct equity fits.
+Output NONE if you are uncertain about a ticker.
+
+Format (required — no extra lines between):
+REVISED_THESIS: [your revised thesis on one line]
+TICKER: XYZ NAME: Full Company Name
+
+If no valid US ticker exists, output:
+TICKER: NONE NAME: Unknown"""
+
+_REVISED_THESIS_RE = re.compile(r"^REVISED_THESIS:\s*(.+)$", re.MULTILINE)
 
 # ── Thinking-tag pattern (qwen3 and other reasoning models) ──────────────────
 
@@ -357,6 +388,67 @@ class LLMSynthesizer:
             logger.warning("extract_tickers: failed for %r: %s", entity, exc)
 
         return [{"ticker": entity, "name": entity}]
+
+    def review_opportunity(
+        self,
+        thesis: str,
+        entity: str,
+        direction: str = "bullish",
+        hint: str = "",
+    ) -> dict:
+        """Re-analyse an existing opportunity with user-provided feedback.
+
+        Runs a structured LLM call at temperature 0.1 (deterministic).
+        Returns a revised thesis and up to 3 ticker suggestions.
+
+        Args:
+            thesis: The original LLM-generated thesis text.
+            entity: The geographic/topical entity or ticker label.
+            direction: ``"bullish"`` or ``"bearish"``.
+            hint: Free-text user note describing what to improve.
+
+        Returns:
+            ``{"thesis": "revised...", "tickers": [{"ticker": "TSM", "name": "..."}]}``
+            Falls back to original thesis + entity ticker on any failure.
+        """
+        if not hint:
+            hint = "Improve ticker selection and thesis specificity."
+
+        prompt = _REVIEW_PROMPT.format(
+            entity=entity,
+            direction=direction,
+            thesis=thesis,
+            hint=hint,
+        )
+        try:
+            raw = self._route(
+                prompt=prompt,
+                primary="ollama",
+                fallback="claude",
+                temperature=0.1,
+                max_tokens=300,
+                context=f"review_opportunity(entity={entity})",
+            ).text
+
+            # Parse revised thesis
+            thesis_match = _REVISED_THESIS_RE.search(raw)
+            revised_thesis = thesis_match.group(1).strip() if thesis_match else thesis
+
+            # Parse tickers using the same regex as extract_tickers
+            tickers = _parse_ticker_lines(raw)
+            if not tickers:
+                tickers = [{"ticker": entity, "name": entity}]
+
+            logger.info(
+                "review_opportunity(%r): thesis=%r tickers=%s",
+                entity, revised_thesis[:80], tickers,
+            )
+            return {"thesis": revised_thesis, "tickers": tickers}
+
+        except Exception as exc:
+            logger.warning("review_opportunity: failed for %r: %s", entity, exc)
+
+        return {"thesis": thesis, "tickers": [{"ticker": entity, "name": entity}]}
 
     def is_available(self) -> bool:
         """Return True if at least one backend is reachable."""

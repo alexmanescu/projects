@@ -135,9 +135,25 @@ class TelegramNotifier:
         gap_ratio = opportunity.get("gap_ratio", 0.0)
         amount = opportunity.get("amount", 0.0)
         stop_loss_pct = opportunity.get("stop_loss_pct", 5.0)
-        max_loss = amount * stop_loss_pct / 100
+        share_price = opportunity.get("suggested_price")
 
         thesis_preview = (thesis[:300] + "...") if len(thesis) > 300 else thesis
+
+        if share_price and share_price > 0:
+            shares = max(1, int(amount / share_price))
+            max_loss_dollars = shares * share_price * stop_loss_pct / 100
+            position_lines = (
+                f"• Share Price: ${share_price:,.2f}\n"
+                f"• Suggested Purchase: {shares:,} shares\n"
+                f"• Stop Loss: {stop_loss_pct:.1f}%\n"
+                f"• Max Loss: ${max_loss_dollars:,.0f}"
+            )
+        else:
+            position_lines = (
+                f"• Amount: ${amount:,.0f}\n"
+                f"• Stop Loss: {stop_loss_pct:.1f}%\n"
+                f"• Max Loss: ${amount * stop_loss_pct / 100:,.0f}"
+            )
 
         message = (
             f"🎯 <b>OPPORTUNITY DETECTED</b>\n\n"
@@ -149,9 +165,7 @@ class TelegramNotifier:
             f"• Asian: {asia_count} articles\n"
             f"• Gap: {gap_ratio:.1f}x\n\n"
             f"<b>Suggested Position:</b>\n"
-            f"• Amount: ${amount:,.0f}\n"
-            f"• Stop Loss: {stop_loss_pct:.1f}%\n"
-            f"• Max Loss: ${max_loss:,.0f}\n\n"
+            f"{position_lines}\n\n"
             f"<b>Commands:</b>\n"
             f"Reply: <code>YES {opp_id}</code>\n"
             f"Skip: <code>NO {opp_id}</code>\n"
@@ -381,6 +395,7 @@ class TelegramNotifier:
                     coverage_analysis=coverage,
                     catalyst=opportunity.get("topic"),
                     suggested_amount=opportunity.get("amount"),
+                    suggested_price=opportunity.get("suggested_price"),
                     stop_loss_pct=opportunity.get("stop_loss_pct"),
                     confluence_score=opportunity.get("confluence_score"),
                     primary_strategy_id=opportunity.get("strategy_id"),

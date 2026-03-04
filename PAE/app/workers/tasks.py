@@ -189,20 +189,94 @@ def _suggest_kalshi_categories(articles: list[dict], strategy_id: int | None, no
     return sent
 
 
-def _share_price_ok(ticker: str) -> bool:
-    """Return True if *ticker*'s current share price is within settings.max_share_price.
+# ── Alpaca US equity asset cache ──────────────────────────────────────────────
 
-    Returns True on any lookup failure so international tickers or
-    temporary API issues don't silently drop opportunities.
+# Maps ticker symbol → company name for all active, tradable US equities.
+# Populated lazily on first use and refreshed every 24 hours.
+_alpaca_assets: dict[str, str] = {}
+_alpaca_assets_loaded_at: datetime | None = None
+_ALPACA_ASSET_CACHE_TTL = timedelta(hours=24)
+
+
+def _get_alpaca_us_equities() -> dict[str, str]:
+    """Return a cached dict of {SYMBOL: company_name} for all active US equities.
+
+    Fetches from Alpaca ``GET /v2/assets`` and caches for 24 hours.
+    Returns an empty dict on failure so callers can treat absence as "unknown".
     """
-    if not settings.max_share_price or settings.max_share_price <= 0:
-        return True
+    global _alpaca_assets, _alpaca_assets_loaded_at
+
+    now = datetime.now(timezone.utc)
+    if (
+        _alpaca_assets
+        and _alpaca_assets_loaded_at
+        and now - _alpaca_assets_loaded_at < _ALPACA_ASSET_CACHE_TTL
+    ):
+        return _alpaca_assets
+
+    try:
+        from alpaca.trading.client import TradingClient
+        from alpaca.trading.requests import GetAssetsRequest
+        from alpaca.trading.enums import AssetClass, AssetStatus
+
+        client = TradingClient(
+            api_key=settings.alpaca_api_key,
+            secret_key=settings.alpaca_secret_key,
+            paper=settings.paper_trading,
+        )
+        request = GetAssetsRequest(
+            asset_class=AssetClass.US_EQUITY,
+            status=AssetStatus.ACTIVE,
+        )
+        assets = client.get_all_assets(request)
+        _alpaca_assets = {
+            a.symbol: (a.name or a.symbol)
+            for a in assets
+            if a.tradable
+        }
+        _alpaca_assets_loaded_at = now
+        logger.info(
+            "_get_alpaca_us_equities: loaded %d US equity symbols from Alpaca",
+            len(_alpaca_assets),
+        )
+    except Exception as exc:
+        logger.warning("_get_alpaca_us_equities: failed to load asset list: %s", exc)
+        # Keep stale cache if available; return empty dict if never loaded
+
+    return _alpaca_assets
+
+
+def _get_validated_price(ticker: str) -> float | None:
+    """Validate *ticker* and return its current share price.
+
+    Validation order:
+    1. Reject NONE / empty
+    2. Reject exchange-suffixed symbols (.T, .HK, etc.)
+    3. Check against Alpaca asset list — reject unknown tickers when cache is loaded
+    4. Fetch current price; apply max_share_price cap if enabled
+
+    Returns:
+        ``price``  — valid ticker, price known (may still be > 0 even if cap disabled)
+        ``0.0``    — valid ticker but price unavailable (API error) or cap disabled
+        ``None``   — ticker rejected (invalid, not tradeable, over cap)
+    """
     if not ticker or ticker.upper() == "NONE":
-        return False
+        return None
     # Skip if ticker looks like a non-US exchange symbol
     if "." in ticker and not ticker.endswith(".US"):
-        logger.info("_share_price_ok: %s has exchange suffix — not US-listed, skipping", ticker)
-        return False
+        logger.info("_get_validated_price: %s has exchange suffix — not US-listed, skipping", ticker)
+        return None
+
+    # ── Step 3: existence check against Alpaca asset universe ─────────────────
+    known_assets = _get_alpaca_us_equities()
+    if known_assets and ticker not in known_assets:
+        logger.info(
+            "_get_validated_price: %s not found in Alpaca US equity list (%d symbols) — rejecting",
+            ticker, len(known_assets),
+        )
+        return None
+
+    # ── Step 4: price fetch + cap check ───────────────────────────────────────
     try:
         from alpaca.data.historical import StockHistoricalDataClient
         from alpaca.data.requests import StockLatestTradeRequest
@@ -212,16 +286,21 @@ def _share_price_ok(ticker: str) -> bool:
         )
         trades = client.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols=ticker))
         price = float(trades[ticker].price)
-        if price > settings.max_share_price:
+        if settings.max_share_price and settings.max_share_price > 0 and price > settings.max_share_price:
             logger.info(
-                "_share_price_ok: %s @ $%.2f exceeds max $%.2f — skipping",
+                "_get_validated_price: %s @ $%.2f exceeds max $%.2f — skipping",
                 ticker, price, settings.max_share_price,
             )
-            return False
-        return True
+            return None
+        return price
     except Exception as exc:
-        logger.debug("_share_price_ok: price check failed for %s (%s) — allowing", ticker, exc)
-        return True  # can't verify → allow through
+        logger.debug("_get_validated_price: price check failed for %s (%s) — allowing", ticker, exc)
+        return 0.0  # ticker is known but price unavailable → allow through
+
+
+def _share_price_ok(ticker: str) -> bool:
+    """Return True if ticker is a valid, tradeable US equity within the price cap."""
+    return _get_validated_price(ticker) is not None
 
 
 def run_scrape_cycle(strategy_name: str) -> dict:
@@ -537,7 +616,8 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
             else primary_ticker
         )
 
-        if not _share_price_ok(primary_ticker):
+        share_price = _get_validated_price(primary_ticker)
+        if share_price is None:
             logger.info("gap_loop: skipping %s — share price above max or non-US ticker", primary_ticker)
             continue
 
@@ -572,6 +652,7 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
             "stop_loss_pct": 15.0,   # Layer B: wider stop (structural trade)
             "strategy_id": strategy_id,
             "confluence_score": adjusted_confidence,
+            "suggested_price": share_price if share_price and share_price > 0 else None,
         }
 
         try:
@@ -717,7 +798,8 @@ def run_detection_cycle(strategy_name: str) -> dict:
             else primary_ticker
         )
 
-        if not _share_price_ok(primary_ticker):
+        share_price = _get_validated_price(primary_ticker)
+        if share_price is None:
             logger.info("detection_gap_loop: skipping %s — share price above max or non-US ticker", primary_ticker)
             continue
 
@@ -752,6 +834,7 @@ def run_detection_cycle(strategy_name: str) -> dict:
             "stop_loss_pct": 15.0,   # Layer B: wider stop (structural trade)
             "strategy_id": strategy_id,
             "confluence_score": adjusted_confidence,
+            "suggested_price": share_price if share_price and share_price > 0 else None,
         }
 
         try:
