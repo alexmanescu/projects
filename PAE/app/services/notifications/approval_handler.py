@@ -91,6 +91,10 @@ class ApprovalHandler:
                     parse_mode="HTML",
                 )
 
+            elif command == "ADDCAT" and len(parts) >= 2:
+                term = " ".join(parts[1:]).title()
+                await self.handle_addcat(term, update)
+
             elif command == "STATUS":
                 await self.handle_status()
 
@@ -398,7 +402,42 @@ class ApprovalHandler:
         )
         await self._notifier.send_message(message)
 
-    # ── Category voting ───────────────────────────────────────────────────────
+    # ── Category management ───────────────────────────────────────────────────
+
+    async def handle_addcat(self, term: str, update: "Update") -> None:
+        """Manually add and immediately activate a Kalshi signal category."""
+        from datetime import datetime, timezone
+        from app.models.kalshi_category import KalshiCategory
+        from app.core.database import db_session
+
+        with db_session() as db:
+            existing = db.query(KalshiCategory).filter(
+                KalshiCategory.term == term
+            ).first()
+
+            if existing:
+                await update.message.reply_text(
+                    f"⚠️ <b>{term}</b> is already <b>{existing.status}</b> — no change made.",
+                    parse_mode="HTML",
+                )
+                if existing.status == "approved":
+                    await self._spot_scan_kalshi(term)
+                return
+
+            db.add(KalshiCategory(
+                term=term,
+                category="manual",
+                status="approved",
+                source="manual ADDCAT command",
+                approved_at=datetime.now(timezone.utc),
+            ))
+
+        logger.info("handle_addcat: manually approved %r", term)
+        await update.message.reply_text(
+            f"✅ <b>{term}</b> added and approved — scanning Kalshi now…",
+            parse_mode="HTML",
+        )
+        await self._spot_scan_kalshi(term)
 
     async def _handle_category_vote(
         self, telegram_message_id: int, vote: str, update: "Update"
@@ -546,5 +585,6 @@ class ApprovalHandler:
             "• <code>STATUS</code> — Portfolio summary\n"
             "• <code>HELP</code>   — Show this message\n\n"
             "<b>Signal Categories:</b>\n"
-            "• Reply <code>YES</code> or <code>NO</code> to a 📡 suggestion — Approve or reject a new Kalshi signal category"
+            "• <code>ADDCAT {term}</code> — Manually add a Kalshi search term and scan immediately\n"
+            "• Reply <code>YES</code> or <code>NO</code> to a 📡 suggestion — Approve or reject a suggested category"
         )

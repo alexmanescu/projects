@@ -254,6 +254,32 @@ def run_scrape_cycle(strategy_name: str) -> dict:
             spec.loader.exec_module(rules_mod)
             pattern_rules = getattr(rules_mod, "PATTERN_RULES", [])
 
+    # Augment pattern rules with approved Kalshi signal categories from DB.
+    # This runs fresh every scrape cycle — no restart required.
+    try:
+        from app.models.kalshi_category import KalshiCategory as _KC
+        with db_session() as _kdb:
+            _approved_terms = [
+                r.term for r in _kdb.query(_KC).filter(_KC.status == "approved").all()
+            ]
+        if _approved_terms:
+            pattern_rules = list(pattern_rules)  # make a mutable copy
+            for _term in _approved_terms:
+                pattern_rules.append({
+                    "name": f"kalshi:{_term}",
+                    "keywords": [_term],
+                    "exclude": [],
+                    "confidence": 0.6,
+                    "signal_type": "neutral",
+                    "description": f"Approved Kalshi signal: {_term}",
+                })
+            logger.debug(
+                "run_scrape_cycle: injected %d approved Kalshi category rules",
+                len(_approved_terms),
+            )
+    except Exception as _exc:
+        logger.debug("run_scrape_cycle: skipping Kalshi category injection: %s", _exc)
+
     rss = RSSNewsScraper()
     processor = ArticleProcessor(strategy_name, pattern_rules)
     counts = {"scraped_new": 0, "analyzed_existing": 0, "skipped": 0, "error": 0}
