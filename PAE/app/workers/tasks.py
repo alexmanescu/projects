@@ -1067,10 +1067,15 @@ def _surface_kalshi_market_signals(
     sent = 0
 
     for term in search_terms:
+        time.sleep(1.5)  # stay inside Kalshi rate limits (~40 req/min)
         try:
             markets = kalshi.find_markets(term, limit=10)
         except KalshiError as exc:
-            logger.debug("_surface_kalshi_market_signals: search %r failed: %s", term, exc)
+            if "too_many_requests" in str(exc).lower():
+                logger.warning("_surface_kalshi_market_signals: rate-limited on %r — waiting 10s", term)
+                time.sleep(10)
+            else:
+                logger.debug("_surface_kalshi_market_signals: search %r failed: %s", term, exc)
             continue
 
         for market in markets:
@@ -1084,8 +1089,11 @@ def _surface_kalshi_market_signals(
                 continue  # not a strong enough signal
 
             # Skip sports / entertainment — we only want macro / political markets
-            mkt_category = (market.get("category") or "").lower().strip()
-            if mkt_category in {"sports", "entertainment", "pop culture", "awards"}:
+            mkt_category = (
+                market.get("category") or market.get("event_category") or ""
+            ).lower().strip()
+            logger.debug("_surface_kalshi: ticker=%s category=%r", ticker, mkt_category)
+            if any(blocked in mkt_category for blocked in ("sport", "entertainment", "pop culture", "award", "nba", "nfl", "nhl", "mlb")):
                 continue
 
             # 24h dedup
