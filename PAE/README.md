@@ -78,25 +78,29 @@ RSS Feeds (14 sources across 5 categories)
          (MySQL, shared DB)
 ```
 
-**Deployment split:** Workers and Telegram bot run on a Mac Mini.
-MySQL and a future web dashboard live on shared web hosting.
+**Deployment split:** Scraping and the Telegram bot run on a Mac Mini; GPU-heavy
+detection runs on a Windows machine.  MySQL and a future web dashboard live on
+shared web hosting.
 
 ---
 
 ## Where things run
 
-PAE uses a two-machine deployment.  **All Python code runs on the Mac Mini —
-nothing is installed on the web server.**
+PAE uses a **three-machine deployment**.
 
 | What | Where |
 |------|-------|
-| Python workers + Telegram bot | Mac Mini |
-| Ollama (local LLM) | Mac Mini |
+| Scrape worker + Telegram bot | Mac Mini |
+| Ollama (local LLM, GPU inference) | Windows GPU host |
+| Detection worker (`app.workers.tasks --mode detect`) | Windows GPU host |
+| Bot listener (`app.workers.bot_listener`) | Windows GPU host |
 | MySQL database | Web hosting (cPanel/phpMyAdmin) |
 | Future web dashboard | Web hosting |
 
-The web server is used only as a MySQL host.  Shared hosting cannot run
-long-lived background processes or Ollama, so those stay on the Mac Mini.
+Both Mac Mini and Windows connect to the same remote MySQL via an SSH tunnel
+(`127.0.0.1:3307 → server:3306`).  The `start-detect.ps1` script opens this
+tunnel automatically.  Shared hosting cannot run long-lived processes or
+Ollama, so those stay on local machines.
 
 ---
 
@@ -157,6 +161,10 @@ Copy `.env.development` to `.env` and fill in your values.
 | `TELEGRAM_CHAT_ID` | _(empty)_ | ✅ | Your Telegram user/chat ID |
 | `PAPER_TRADING` | `true` | — | Route orders to paper account |
 | `DRY_RUN` | `true` | — | Skip all external side-effects |
+| `KALSHI_API_KEY` | _(empty)_ | — | Kalshi member ID for RSA auth |
+| `KALSHI_SECRET` | _(empty)_ | — | PEM private key (RSA-PKCS1v15) |
+| `KALSHI_BASE_URL` | `https://api.elections.kalshi.com/trade-api/v2` | — | Kalshi REST base URL |
+| `KALSHI_LIVE` | `false` | — | Enable Kalshi order placement (reads always work) |
 | `CHECK_INTERVAL_MINUTES` | `60` | — | Scrape cycle cadence (legacy single-strategy mode) |
 | `LOG_LEVEL` | `INFO` | — | Python logging level |
 
@@ -189,14 +197,41 @@ python scripts/run_telegram_bot.py
 Listens for commands in your chat:
 
 ```
-YES  42      → Approve opportunity #42 and execute buy
-NO   42      → Reject opportunity
-INFO 42      → Show full thesis and coverage analysis
-SELL NVDA    → Close NVDA position
-HOLD NVDA    → Acknowledge alert, keep monitoring
-STATUS       → Portfolio snapshot with P/L
-HELP         → Command reference
+YES  42           → Approve opportunity #42 and execute buy
+NO   42           → Reject opportunity
+INFO 42           → Show full thesis and coverage analysis
+REVIEW KALSHI 42  → Fetch current Kalshi market price for opportunity
+ADDCAT <text>     → Add a signal category note to the latest opportunity
+SELL NVDA         → Close NVDA position
+HOLD NVDA         → Acknowledge alert, keep monitoring
+STATUS            → Portfolio snapshot with P/L
+HELP              → Command reference
 ```
+
+### Bot listener — worker pause/resume control
+
+```bash
+# Windows (runs alongside the detect worker)
+python -m app.workers.bot_listener
+# or via PowerShell shortcut: pae-bot
+```
+
+Telegram commands for live worker control:
+
+```
+/status                   → Show pause state of all workers and sub-lanes
+/pause scrape             → Pause the Mac Mini scrape worker
+/pause detect             → Pause the Windows detect worker entirely
+/pause detect kalshi      → Pause Kalshi prediction market scanning only
+/pause detect stock       → Pause equity coverage-gap alerting only
+/resume <same args>       → Resume a paused worker or sub-lane
+/help                     → Show all bot commands
+```
+
+Pause flags are written to the `worker_controls` DB table and take effect
+at the start of the next detection cycle.
+
+---
 
 ### Single-strategy manual run (legacy)
 
@@ -238,6 +273,43 @@ run without any live services.
 
 ---
 
+## Detection Layers
+
+The detection worker runs four signal-sourcing layers per cycle:
+
+| Layer | Source | Trigger |
+|-------|--------|---------|
+| **A — Pattern rules** | Scraped articles matching `PATTERN_RULES` | Named-entity + keyword match |
+| **B — Coverage gap** | Articles with high Asia/West asymmetry score | Asymmetry > threshold |
+| **Kalshi direct** | Prediction market scan (`/events?status=open`) | Market close within 7 days |
+| **Confluence** | Cross-strategy signal aggregation (48 h window) | Multiple corroborating signals |
+
+Layer A and Layer B feed into equity opportunities (Alpaca).
+Kalshi direct feeds into prediction market opportunities (Kalshi).
+All layers share the same Telegram approval flow.
+
+---
+
+## Kalshi Integration
+
+PAE scans Kalshi prediction markets for opportunities that align with the
+current propaganda/news thesis.
+
+**Auth:** RSA-PKCS1v15 signing.  Set `KALSHI_API_KEY` (member ID) and
+`KALSHI_SECRET` (PEM private key) in `.env`.
+
+**Flow:**
+1. `kalshi_interface.py` fetches `/events?status=open` (with nested markets)
+2. Markets expiring within 7 days are kept; others are filtered out
+3. LLM scores each market for thesis alignment
+4. A high-scoring market triggers a Telegram opportunity alert (same YES/NO flow as equities)
+5. Approved opportunities call `kalshi_interface.place_order()` — gated by `KALSHI_LIVE=true`
+6. `KALSHI_LIVE=false` (default) means reads and alerts work, but no orders are placed
+
+**Key file:** [app/services/trading/kalshi_interface.py](app/services/trading/kalshi_interface.py)
+
+---
+
 ## Project Structure
 
 ```
@@ -253,7 +325,8 @@ PAE/
 │   │   ├── signal.py
 │   │   ├── opportunity.py
 │   │   ├── trade.py            # + log_execution / get_active_trades / calculate_returns
-│   │   └── position.py
+│   │   ├── position.py
+│   │   └── worker_control.py   # WorkerControl — pause/resume flags per worker
 │   ├── services/
 │   │   ├── scrapers/
 │   │   │   ├── rss_scraper.py        # feedparser + retry
@@ -264,6 +337,7 @@ PAE/
 │   │   ├── trading/
 │   │   │   ├── broker_interface.py   # Abstract BrokerInterface + dataclasses
 │   │   │   ├── alpaca_interface.py   # AlpacaBroker (fill poll, stop-loss)
+│   │   │   ├── kalshi_interface.py   # KalshiBroker (RSA auth, market scan, orders)
 │   │   │   └── position_manager.py   # Conviction sizing + risk limits
 │   │   └── notifications/
 │   │       ├── telegram_notifier.py  # Push alerts to Telegram
@@ -272,8 +346,9 @@ PAE/
 │   │   ├── url_normalizer.py   # 3-tier URL canonicalisation
 │   │   └── dedup.py            # should_scrape() + register_alias()
 │   └── workers/
-│       ├── tasks.py            # All 5 scheduled task functions
+│       ├── tasks.py            # All 5 scheduled task functions + detection layers
 │       ├── scheduler.py        # APScheduler BlockingScheduler
+│       ├── bot_listener.py     # Telegram /pause /resume /status bot (worker control)
 │       └── health.py           # check_system_health() → dict
 ├── strategies/
 │   └── propaganda-arbitrage/
@@ -282,8 +357,10 @@ PAE/
 │       ├── pattern_rules.py    # PATTERN_RULES list + PATTERNS dict
 │       └── llm_config.py       # LLM_CONFIG + prompts + schema
 ├── scripts/
-│   ├── run_workers.py          # Scheduler entry point
-│   └── run_telegram_bot.py     # Bot entry point
+│   ├── run_workers.py          # Scheduler entry point (Mac Mini)
+│   └── run_telegram_bot.py     # Bot entry point (Mac Mini)
+├── start-detect.ps1            # Windows: opens SSH tunnel + starts detect worker
+├── start-bot.ps1               # Windows: starts bot listener
 ├── deploy/
 │   ├── pae-workers.service     # systemd unit (Linux)
 │   └── com.pae.workers.plist   # launchd plist (macOS)
@@ -309,6 +386,37 @@ PAE/
 | Max portfolio exposure | 90% | `_MAX_EXPOSURE_RATIO` in `position_manager.py` |
 
 **Live trading requires explicitly setting both `DRY_RUN=false` AND `PAPER_TRADING=false`.**
+
+---
+
+## Current State & Known Issues
+
+**Live as of 2026-03-02.** Paper trading active; no real-money orders executed yet.
+
+### What's working
+- Scrape worker on Mac Mini: ~512 articles per run, 14 RSS sources
+- Ollama LLM analysis (qwen3-coder:30b): ~532 analyses per run
+- Kalshi prediction market scanning: `status=open` filter + 7-day expiry window
+- Telegram approval flow for both equity and Kalshi opportunities
+- Sub-lane pause/resume via `/pause detect kalshi` and `/pause detect stock`
+- 24 h deduplication for equity opportunities (prevents repeated TSM-style spam)
+
+### Known data issues
+- **Iran dominance:** ~80% of high-signal articles are Iran-related; geographic
+  diversity filters or source rebalancing may be needed
+- **Low relevance scores:** Bulk of scraped articles score < 0.3; coverage-gap
+  signal quality depends heavily on source mix
+- **Non-US ticker leakage:** Pattern detector occasionally surfaces non-US tickers
+  (e.g. TSM ADR variants); equity filter improvements pending
+- **`source_region` not populated:** Articles lack the Asia/West region tag needed
+  for asymmetry scoring; this limits Layer B effectiveness
+
+### Known schema issues
+- **`opportunities.stop_loss_pct DECIMAL(3,2)`** silently truncates values ≥ 10%
+  to 9.99.  Run the following migration before live trading:
+  ```sql
+  ALTER TABLE opportunities MODIFY COLUMN stop_loss_pct DECIMAL(5,2);
+  ```
 
 ---
 

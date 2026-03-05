@@ -143,17 +143,28 @@ class TelegramNotifier:
         if (not share_price or share_price <= 0) and opportunity.get("market_type", "us_stock") == "us_stock":
             try:
                 from alpaca.data.historical import StockHistoricalDataClient
-                from alpaca.data.requests import StockLatestTradeRequest
+                from alpaca.data.requests import StockLatestTradeRequest, StockBarsRequest
+                from alpaca.data.timeframe import TimeFrame
                 _client = StockHistoricalDataClient(
                     api_key=settings.alpaca_api_key,
                     secret_key=settings.alpaca_secret_key,
                 )
-                _trades = _client.get_stock_latest_trade(
-                    StockLatestTradeRequest(symbol_or_symbols=ticker)
-                )
-                share_price = float(_trades[ticker].price)
+                try:
+                    _trades = _client.get_stock_latest_trade(
+                        StockLatestTradeRequest(symbol_or_symbols=ticker)
+                    )
+                    share_price = float(_trades[ticker].price)
+                except Exception:
+                    _bars = _client.get_stock_bars(StockBarsRequest(
+                        symbol_or_symbols=ticker,
+                        timeframe=TimeFrame.Day,
+                        limit=1,
+                    ))
+                    _bar_list = _bars.get(ticker) if _bars else None
+                    if _bar_list:
+                        share_price = float(_bar_list[-1].close)
             except Exception:
-                pass  # remain with simple format if fetch fails
+                pass  # remain with simple format if all fetches fail
 
         if share_price and share_price > 0:
             shares = max(1, int(amount / share_price))

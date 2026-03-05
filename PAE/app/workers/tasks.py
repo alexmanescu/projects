@@ -286,13 +286,32 @@ def _get_validated_price(ticker: str) -> float | None:
     # ── Step 4: price fetch + cap check ───────────────────────────────────────
     try:
         from alpaca.data.historical import StockHistoricalDataClient
-        from alpaca.data.requests import StockLatestTradeRequest
+        from alpaca.data.requests import StockLatestTradeRequest, StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame
         client = StockHistoricalDataClient(
             api_key=settings.alpaca_api_key,
             secret_key=settings.alpaca_secret_key,
         )
-        trades = client.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols=ticker))
-        price = float(trades[ticker].price)
+        price: float | None = None
+        # Primary: latest trade (requires SIP/IEX subscription on some plans)
+        try:
+            trades = client.get_stock_latest_trade(StockLatestTradeRequest(symbol_or_symbols=ticker))
+            price = float(trades[ticker].price)
+        except Exception as exc:
+            logger.info("_get_validated_price: latest_trade failed for %s (%s) — trying bars", ticker, exc)
+        # Fallback: most recent 1-min bar (always available on free tier)
+        if price is None:
+            bars = client.get_stock_bars(StockBarsRequest(
+                symbol_or_symbols=ticker,
+                timeframe=TimeFrame.Day,
+                limit=1,
+            ))
+            bar_list = bars.get(ticker) if bars else None
+            if bar_list:
+                price = float(bar_list[-1].close)
+        if price is None:
+            logger.info("_get_validated_price: no price for %s — allowing through without price", ticker)
+            return 0.0
         if settings.max_share_price and settings.max_share_price > 0 and price > settings.max_share_price:
             logger.info(
                 "_get_validated_price: %s @ $%.2f exceeds max $%.2f — skipping",
@@ -301,7 +320,7 @@ def _get_validated_price(ticker: str) -> float | None:
             return None
         return price
     except Exception as exc:
-        logger.debug("_get_validated_price: price check failed for %s (%s) — allowing", ticker, exc)
+        logger.info("_get_validated_price: price check failed for %s (%s) — allowing", ticker, exc)
         return 0.0  # ticker is known but price unavailable → allow through
 
 
@@ -832,6 +851,22 @@ def run_detection_cycle(strategy_name: str) -> dict:
             llm=llm,
         )
         adjusted_confidence = round(min(confidence + confluence_boost, 1.0), 2)
+
+        # 24h equity dedup — skip if we already alerted on this ticker recently
+        with db_session() as db_dedup:
+            from app.models import Opportunity as _Opp
+            _existing = (
+                db_dedup.query(_Opp)
+                .filter(
+                    _Opp.ticker == primary_ticker,
+                    _Opp.status.in_(["pending", "approved"]),
+                    _Opp.created_at >= datetime.now(timezone.utc) - timedelta(hours=24),
+                )
+                .first()
+            )
+        if _existing:
+            logger.info("detection_cycle: skipping %s — opportunity already sent in last 24h", primary_ticker)
+            continue
 
         opportunity = {
             "ticker": primary_ticker,
