@@ -18,7 +18,7 @@ class Opportunity(Base):
         ForeignKey("strategies.id", ondelete="SET NULL")
     )
     confluence_strategy_ids: Mapped[str | None] = mapped_column(Text)  # JSON array
-    confluence_score: Mapped[float | None] = mapped_column(DECIMAL(3, 2))
+    confluence_score: Mapped[float | None] = mapped_column(DECIMAL(5, 2))
     market_type: Mapped[str] = mapped_column(String(20), default="us_stock", nullable=False)
     ticker: Mapped[str] = mapped_column(String(20), nullable=False)
     kalshi_market_id: Mapped[str | None] = mapped_column(String(100))
@@ -30,7 +30,7 @@ class Opportunity(Base):
     deadline: Mapped[date | None] = mapped_column(Date)
     suggested_amount: Mapped[float | None] = mapped_column(DECIMAL(10, 2))
     suggested_price: Mapped[float | None] = mapped_column(DECIMAL(10, 2))
-    stop_loss_pct: Mapped[float | None] = mapped_column(DECIMAL(3, 2))
+    stop_loss_pct: Mapped[float | None] = mapped_column(DECIMAL(5, 2))
     status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP, server_default=func.now(), nullable=False

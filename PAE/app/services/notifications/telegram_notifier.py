@@ -160,11 +160,14 @@ class TelegramNotifier:
                         timeframe=TimeFrame.Day,
                         limit=1,
                     ))
-                    _bar_list = _bars.get(ticker) if _bars else None
+                    try:
+                        _bar_list = _bars[ticker] if _bars else None
+                    except (KeyError, TypeError):
+                        _bar_list = None
                     if _bar_list:
                         share_price = float(_bar_list[-1].close)
-            except Exception:
-                pass  # remain with simple format if all fetches fail
+            except Exception as _price_exc:
+                logger.warning("Price fallback failed for %s: %s", ticker, _price_exc)
 
         if share_price and share_price > 0:
             shares = max(1, int(amount / share_price))

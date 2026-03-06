@@ -6,20 +6,13 @@ Tracked bugs and data quality issues. Check off with agent approval as fixes are
 
 ## Critical (block trade execution)
 
-### BUG-01 — `opportunities.stop_loss_pct` DECIMAL truncation
-- **Status:** ❌ Open
-- **Symptom:** `stop_loss_pct` column is `DECIMAL(3,2)`, silently truncates values ≥ 10% to 9.99. Opportunity shows `Stop Loss: 15.0%` in Telegram but DB stores 9.99, causing downstream position sizing errors.
-- **Fix:** Run migration on remote MySQL:
-  ```sql
-  ALTER TABLE opportunities MODIFY COLUMN stop_loss_pct DECIMAL(5,2);
-  ```
-- **File:** `app/models/opportunity.py` — update column definition to match after migration
+### ~~BUG-01~~ — `opportunities.stop_loss_pct` DECIMAL truncation
+- **Status:** ✅ Fixed (2026-03-05)
+- Migration run via `scripts/migrate_fix_decimals.py`: both `stop_loss_pct` and `confluence_score` widened to `DECIMAL(5,2)`. 158 pending rows restored from 9.99 → 15.0. Model updated in `app/models/opportunity.py`.
 
-### BUG-02 — `alpaca-py` not installed on Windows detect worker
-- **Status:** ❌ Open
-- **Symptom:** `❌ Unexpected error: alpaca-py is not installed. Run: pip install alpaca-py` — detect worker on Windows doesn't have the package, causing price lookups and trade execution to fail entirely
-- **Fix:** On the Windows venv: `pip install alpaca-py`
-- **Affects:** `_get_validated_price()`, `telegram_notifier.py` price fallback, `approval_handler.py` order execution
+### ~~BUG-02~~ — `alpaca-py` not installed on Windows detect worker
+- **Status:** ✅ Confirmed not a bug (2026-03-05)
+- Diagnostic confirmed alpaca-py 0.43.2 is present in Windows venv. Original error was from a different failure mode (BarSet API change + $30 price cap), both now fixed.
 
 ---
 
@@ -53,11 +46,9 @@ Tracked bugs and data quality issues. Check off with agent approval as fixes are
 - **Root cause:** `article_processor.py` or scraper config doesn't assign `source_region` during ingestion
 - **Files:** `app/services/scrapers/article_processor.py`, `strategies/propaganda-arbitrage/scraper_config.py`
 
-### BUG-07 — Non-US / non-tradeable tickers surfacing as equity opportunities
-- **Status:** ❌ Open
-- **Symptom:** Tickers like TSM (ADR, not directly shortable on all accounts), and potentially others, slip through the pattern detector. Creates noise and likely-invalid trade suggestions.
-- **Fix:** Post-detection filter: validate ticker against Alpaca's asset list (`is_tradable=True, asset_class=us_equity`) before sending opportunity alert
-- **Files:** `app/workers/tasks.py` → `run_detection_cycle()`
+### ~~BUG-07~~ — Non-US / non-tradeable tickers surfacing as equity opportunities
+- **Status:** ✅ Fixed (2026-03-05)
+- Added `_is_plausible_us_ticker()` fast-path filter in `tasks.py`. Blocks geographic strings ("TAIWAN", "CHINA", "IRAN", etc.) and exchange-suffixed symbols before hitting Alpaca API. Applied in both `_run_strategy_pipeline()` and `run_detection_cycle()`. Also removed the duplicate pre-validation `_write_signal()` call that was writing raw entity names as signal tickers.
 
 ### BUG-08 — Low article relevance scores (bulk < 0.3)
 - **Status:** ❌ Open
@@ -76,6 +67,13 @@ Tracked bugs and data quality issues. Check off with agent approval as fixes are
 - **Symptom:** No position has ever been closed via `SELL <ticker>` or an LLM-triggered exit signal. The full path (`SELL` command / `monitor_positions` → `approval_handler` → `AlpacaBroker.close_position()` → `position` row update) has never been exercised in production.
 - **Risk areas:** `SELL` command parsing, broker close call, stop-loss cancellation on exit, P/L calculation, Telegram confirmation
 - **Files:** `app/services/notifications/approval_handler.py`, `app/services/trading/alpaca_interface.py`, `app/workers/tasks.py` → `monitor_positions()`
+
+### FEAT-01 — Two-stage ticker pipeline: sector sensor → LLM proxy discovery
+- **Status:** 🔵 Planned (post-first-trade)
+- **Design:** Current thesis tickers (TSM, NVDA, LMT, etc.) act as *sector sensors* — they confirm a thesis theme is active but are NOT the trade target. After a signal fires, a second LLM call asks: "Given this thesis, suggest 3-5 US-listed stocks under $30 that would benefit from the same macro tailwind." Returned tickers are validated against Alpaca + `MAX_SHARE_PRICE` cap and become the actual opportunity targets.
+- **Rationale:** User targets $5-$20 small/mid-caps with 3-5x potential. Blue-chip coverage gaps are reliable sector signals but the better trades are in cheaper correlated names (e.g., TSM coverage gap → chip equipment small-caps like COHU, FORM, PLAB).
+- **Implementation:** Add `LLMSynthesizer.suggest_proxy_tickers(thesis, blocked_ticker, max_price)` method. Call it in `run_detection_cycle()` when `_get_validated_price()` returns `None` due to price cap. Create opportunities for proxy tickers that pass validation.
+- **Files:** `app/services/analysis/llm_synthesizer.py`, `app/workers/tasks.py` → `run_detection_cycle()`
 
 ---
 

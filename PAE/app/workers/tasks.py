@@ -253,6 +253,68 @@ def _get_alpaca_us_equities() -> dict[str, str]:
     return _alpaca_assets
 
 
+import re as _re
+
+_US_TICKER_RE = _re.compile(r'^[A-Z]{1,5}$')
+_BLOCKED_TICKER_STRINGS = frozenset({
+    "NONE", "N/A", "UNKNOWN", "GENERAL", "CHINA", "TAIWAN",
+    "JAPAN", "KOREA", "US", "USA", "EU", "EUROPE", "INDIA",
+    "RUSSIA", "UK", "IRAN", "FRANCE", "GERMANY", "BRITAIN",
+    "ISRAEL", "SAUDI", "TURKEY", "MEXICO", "BRAZIL", "CANADA",
+})
+
+
+from collections import Counter as _Counter
+
+_STOP_WORDS = frozenset({
+    "the", "a", "an", "is", "are", "was", "were", "be", "been", "have", "has",
+    "had", "do", "does", "did", "will", "would", "could", "should", "may",
+    "might", "can", "shall", "to", "of", "in", "for", "on", "with", "at", "by",
+    "from", "as", "into", "through", "during", "before", "after", "above",
+    "below", "between", "and", "but", "or", "not", "no", "this", "that",
+    "these", "those", "it", "its", "their", "our", "your", "his", "her",
+})
+
+
+def _thesis_keyword_overlap(new_thesis: str, existing_thesis: str) -> float:
+    """Return Jaccard similarity of top keywords between two thesis texts.
+
+    Used for 72h novelty suppression — theses with > 0.60 overlap are
+    considered duplicates even if the 24h window has expired.
+    """
+    def _extract_keywords(text: str, top_n: int = 15) -> set:
+        words = _re.findall(r'[a-zA-Z]{3,}', text.lower())
+        words = [w for w in words if w not in _STOP_WORDS]
+        counts = _Counter(words)
+        return {w for w, _ in counts.most_common(top_n)}
+
+    kw_new = _extract_keywords(new_thesis)
+    kw_old = _extract_keywords(existing_thesis)
+    if not kw_new or not kw_old:
+        return 0.0
+    intersection = kw_new & kw_old
+    union = kw_new | kw_old
+    return len(intersection) / len(union) if union else 0.0
+
+
+def _is_plausible_us_ticker(ticker: str) -> bool:
+    """Fast check before expensive Alpaca validation.
+
+    Returns False for geographic entities, country names, and other strings
+    that are obviously not US equity tickers.
+    """
+    if not ticker:
+        return False
+    t = ticker.upper().strip()
+    if t in _BLOCKED_TICKER_STRINGS:
+        return False
+    if "." in t:  # exchange-suffixed (005930.KS, 0939.HK)
+        return False
+    if not _US_TICKER_RE.match(t):
+        return False
+    return True
+
+
 def _get_validated_price(ticker: str) -> float | None:
     """Validate *ticker* and return its current share price.
 
@@ -306,7 +368,10 @@ def _get_validated_price(ticker: str) -> float | None:
                 timeframe=TimeFrame.Day,
                 limit=1,
             ))
-            bar_list = bars.get(ticker) if bars else None
+            try:
+                bar_list = bars[ticker] if bars else None
+            except (KeyError, TypeError):
+                bar_list = None
             if bar_list:
                 price = float(bar_list[-1].close)
         if price is None:
@@ -642,6 +707,11 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
             else primary_ticker
         )
 
+        # Fast-path: reject obvious non-US tickers before hitting Alpaca API
+        if not _is_plausible_us_ticker(primary_ticker):
+            logger.info("gap_loop: skipping %s — not a plausible US ticker", primary_ticker)
+            continue
+
         share_price = _get_validated_price(primary_ticker)
         if share_price is None:
             logger.info("gap_loop: skipping %s — share price above max or non-US ticker", primary_ticker)
@@ -667,6 +737,30 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
         )
         adjusted_confidence = round(min(confidence + confluence_boost, 1.0), 2)
 
+        # 72h novelty dedup — skip if same ticker with similar thesis alerted recently
+        with db_session() as db_dedup:
+            from app.models import Opportunity as _Opp
+            _recent_opps = (
+                db_dedup.query(_Opp)
+                .filter(
+                    _Opp.ticker == primary_ticker,
+                    _Opp.status.in_(["pending", "approved"]),
+                    _Opp.created_at >= datetime.now(timezone.utc) - timedelta(hours=72),
+                )
+                .all()
+            )
+        if _recent_opps:
+            max_overlap = max(
+                _thesis_keyword_overlap(thesis, opp.thesis or "")
+                for opp in _recent_opps
+            )
+            if max_overlap > 0.60:
+                logger.info(
+                    "_run_strategy_pipeline: suppressing %s — thesis %.0f%% similar to recent opp",
+                    primary_ticker, max_overlap * 100,
+                )
+                continue
+
         opportunity = {
             "ticker": primary_ticker,
             "topic": "coverage_gap",
@@ -678,7 +772,7 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
             "stop_loss_pct": 15.0,   # Layer B: wider stop (structural trade)
             "strategy_id": strategy_id,
             "confluence_score": adjusted_confidence,
-            "suggested_price": share_price if share_price and share_price > 0 else None,
+            "suggested_price": share_price if share_price is not None and share_price > 0 else None,
         }
 
         try:
@@ -798,14 +892,6 @@ def run_detection_cycle(strategy_name: str) -> dict:
         gap_ratio = float(gap.get("gap_ratio", 1.0))
         confidence = min(gap_ratio / 10.0, 1.0)
 
-        _write_signal(
-            strategy_id=strategy_id,
-            ticker=entity,
-            signal_type="coverage_gap",
-            confidence=confidence,
-            raw=gap,
-        )
-
         try:
             thesis = llm.generate_thesis(gap, strategy_id or 0)
         except Exception as exc:
@@ -826,6 +912,11 @@ def run_detection_cycle(strategy_name: str) -> dict:
             if primary_name != primary_ticker
             else primary_ticker
         )
+
+        # Fast-path: reject obvious non-US tickers before hitting Alpaca API
+        if not _is_plausible_us_ticker(primary_ticker):
+            logger.info("detection_cycle: skipping %s — not a plausible US ticker", primary_ticker)
+            continue
 
         share_price = _get_validated_price(primary_ticker)
         if share_price is None:
@@ -852,21 +943,33 @@ def run_detection_cycle(strategy_name: str) -> dict:
         )
         adjusted_confidence = round(min(confidence + confluence_boost, 1.0), 2)
 
-        # 24h equity dedup — skip if we already alerted on this ticker recently
+        # 72h novelty dedup — skip if same ticker with similar thesis alerted recently
         with db_session() as db_dedup:
             from app.models import Opportunity as _Opp
-            _existing = (
+            _recent_opps = (
                 db_dedup.query(_Opp)
                 .filter(
                     _Opp.ticker == primary_ticker,
                     _Opp.status.in_(["pending", "approved"]),
-                    _Opp.created_at >= datetime.now(timezone.utc) - timedelta(hours=24),
+                    _Opp.created_at >= datetime.now(timezone.utc) - timedelta(hours=72),
                 )
-                .first()
+                .all()
             )
-        if _existing:
-            logger.info("detection_cycle: skipping %s — opportunity already sent in last 24h", primary_ticker)
-            continue
+        if _recent_opps:
+            max_overlap = max(
+                _thesis_keyword_overlap(thesis, opp.thesis or "")
+                for opp in _recent_opps
+            )
+            if max_overlap > 0.60:
+                logger.info(
+                    "detection_cycle: suppressing %s — thesis %.0f%% similar to recent opp",
+                    primary_ticker, max_overlap * 100,
+                )
+                continue
+            logger.debug(
+                "detection_cycle: %s has recent opps but thesis is novel (max overlap=%.2f)",
+                primary_ticker, max_overlap,
+            )
 
         opportunity = {
             "ticker": primary_ticker,
@@ -879,7 +982,7 @@ def run_detection_cycle(strategy_name: str) -> dict:
             "stop_loss_pct": 15.0,   # Layer B: wider stop (structural trade)
             "strategy_id": strategy_id,
             "confluence_score": adjusted_confidence,
-            "suggested_price": share_price if share_price and share_price > 0 else None,
+            "suggested_price": share_price if share_price is not None and share_price > 0 else None,
         }
 
         try:
