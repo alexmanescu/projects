@@ -170,9 +170,19 @@ class ApprovalHandler:
                 return
 
             market_type = opp.market_type or "us_stock"
+            # Snapshot Kalshi fields before session closes
+            _kalshi_snapshot = {
+                "id": opp.id,
+                "ticker": opp.ticker,
+                "kalshi_market_id": opp.kalshi_market_id,
+                "kalshi_side": opp.kalshi_side,
+                "kalshi_yes_price": opp.kalshi_yes_price,
+                "suggested_amount": opp.suggested_amount,
+                "primary_strategy_id": opp.primary_strategy_id,
+            } if market_type == "kalshi" else None
 
         if market_type == "kalshi":
-            await self._handle_kalshi_approval(opp)
+            await self._handle_kalshi_approval(_kalshi_snapshot)
             return
 
         # ── Equity approval (Alpaca / future Moomoo) ──────────────────────────
@@ -230,17 +240,21 @@ class ApprovalHandler:
             "stop_loss": stop_price,
         })
 
-    async def _handle_kalshi_approval(self, opp) -> None:
-        """Execute a Kalshi contract buy and confirm via Telegram."""
+    async def _handle_kalshi_approval(self, opp: dict) -> None:
+        """Execute a Kalshi contract buy and confirm via Telegram.
+
+        *opp* is a plain dict snapshot (not an ORM object) to avoid
+        ``DetachedInstanceError`` after the calling session closes.
+        """
         from app.models import Trade
         from app.core.database import db_session
         from app.services.trading.kalshi_interface import KalshiInterface, KalshiError
 
-        market_ticker = opp.kalshi_market_id or opp.ticker
-        side = opp.kalshi_side or "yes"
-        yes_price = int(opp.kalshi_yes_price or 50)
+        market_ticker = opp.get("kalshi_market_id") or opp.get("ticker", "")
+        side = opp.get("kalshi_side") or "yes"
+        yes_price = int(opp.get("kalshi_yes_price") or 50)
         contract_price = yes_price if side == "yes" else (100 - yes_price)
-        suggested_amount = float(opp.suggested_amount or 5.0)
+        suggested_amount = float(opp.get("suggested_amount") or 5.0)
         count = max(1, int(suggested_amount / (contract_price / 100)))
 
         try:
@@ -257,8 +271,10 @@ class ApprovalHandler:
             )
             return
 
+        opp_id = opp.get("id")
         with db_session() as db:
-            opp_row = db.query(opp.__class__).filter(opp.__class__.id == opp.id).first()
+            from app.models import Opportunity as _Opp
+            opp_row = db.query(_Opp).filter(_Opp.id == opp_id).first()
             if opp_row:
                 opp_row.status = "approved"
 
@@ -268,14 +284,14 @@ class ApprovalHandler:
                 action="buy",
                 quantity=float(count),
                 price=contract_price / 100.0,
-                opportunity_id=opp.id,
-                strategy_id=opp.primary_strategy_id,
+                opportunity_id=opp_id,
+                strategy_id=opp.get("primary_strategy_id"),
                 notes=f"kalshi_side={side} market={market_ticker} status={result.get('status')}",
             )
 
         logger.info(
             "Kalshi opportunity #%d approved: %s %s x%d @ %d¢",
-            opp.id, market_ticker, side, count, contract_price,
+            opp_id, market_ticker, side, count, contract_price,
         )
         await self._notifier.send_message(
             f"✅ <b>KALSHI ORDER{'  <i>(dry run)</i>' if result.get('status') == 'dry_run' else ''}</b>\n\n"

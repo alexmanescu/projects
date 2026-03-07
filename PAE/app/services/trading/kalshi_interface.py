@@ -85,34 +85,63 @@ class KalshiInterface:
 
         results: list[dict] = []
 
-        # ── Strategy 1: events with nested markets (title-filtered) ───────────
+        # ── Strategy 1: paginated event search with nested markets ────────────
+        max_pages = 10  # cap to avoid runaway pagination
         try:
-            data = self._get("/events", params={
-                "status": "open",
-                "limit": 100,
-                "with_nested_markets": "true",
-            })
-            for event in data.get("events", []):
-                if not _title_matches(event.get("title", "")):
-                    continue
-                for m in event.get("markets", []):
-                    results.append(_augment(m))
-                    if len(results) >= limit:
-                        return results
+            cursor: str | None = None
+            for _ in range(max_pages):
+                params: dict[str, Any] = {
+                    "status": "open",
+                    "limit": 200,
+                    "with_nested_markets": "true",
+                }
+                if cursor:
+                    params["cursor"] = cursor
+
+                data = self._get("/events", params=params)
+                events = data.get("events", [])
+                if not events:
+                    break
+
+                for event in events:
+                    event_title = event.get("title", "")
+                    event_matches = _title_matches(event_title)
+                    for m in event.get("markets", []):
+                        if event_matches or _title_matches(m.get("title", "")):
+                            results.append(_augment(m))
+                            if len(results) >= limit:
+                                return results
+
+                cursor = data.get("cursor")
+                if not cursor:
+                    break
         except KalshiError as exc:
             logger.warning("find_markets(%r): /events failed: %s", search_term, exc)
 
         if results:
             return results
 
-        # ── Strategy 2: /markets fallback (title-filtered) ────────────────────
+        # ── Strategy 2: paginated /markets fallback ───────────────────────────
         try:
-            data = self._get("/markets", params={"status": "open", "limit": 200})
-            for m in data.get("markets", []):
-                if not _title_matches(m.get("title", "")):
-                    continue
-                results.append(_augment(m))
-                if len(results) >= limit:
+            cursor = None
+            for _ in range(max_pages):
+                params = {"status": "open", "limit": 200}
+                if cursor:
+                    params["cursor"] = cursor
+
+                data = self._get("/markets", params=params)
+                markets = data.get("markets", [])
+                if not markets:
+                    break
+
+                for m in markets:
+                    if _title_matches(m.get("title", "")):
+                        results.append(_augment(m))
+                        if len(results) >= limit:
+                            return results
+
+                cursor = data.get("cursor")
+                if not cursor:
                     break
         except KalshiError as exc:
             logger.warning("find_markets(%r): /markets fallback failed: %s", search_term, exc)
