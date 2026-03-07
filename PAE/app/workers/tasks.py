@@ -996,6 +996,7 @@ def run_detection_cycle(strategy_name: str) -> dict:
             logger.error("detection_cycle: alert failed for %s: %s", entity, exc)
 
     # ── Proactive Kalshi scan (high-probability markets as direct signals) ────
+    logger.info("detection_cycle: starting Kalshi proactive scan")
     if _is_worker_paused("detect_kalshi"):
         logger.info("detection_cycle: Kalshi proactive scan paused via Telegram")
     else:
@@ -1380,6 +1381,7 @@ def _surface_kalshi_market_signals(
     except Exception as exc:
         logger.debug("_surface_kalshi_market_signals: could not load approved categories: %s", exc)
 
+    logger.info("_surface_kalshi_market_signals: searching %d terms (max_days=%s)", len(search_terms), max_days)
     try:
         kalshi = KalshiInterface()
     except Exception as exc:
@@ -1400,7 +1402,7 @@ def _surface_kalshi_market_signals(
                 logger.warning("_surface_kalshi_market_signals: rate-limited on %r — waiting 10s", term)
                 time.sleep(10)
             else:
-                logger.debug("_surface_kalshi_market_signals: search %r failed: %s", term, exc)
+                logger.info("_surface_kalshi_market_signals: search %r failed: %s", term, exc)
             continue
 
         for market in markets:
