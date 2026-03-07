@@ -96,7 +96,8 @@ def main() -> None:
     # ── Print job schedule ────────────────────────────────────────────────────
     logger.info("Scheduled jobs:")
     for job in scheduler.get_jobs():
-        logger.info("  %-25s next run: %s", job.name, job.next_run_time)
+        next_run = getattr(job, "next_run_time", None) or getattr(job, "next_fire_time", None)
+        logger.info("  %-25s next run: %s", job.name, next_run)
 
     # ── Start scheduler (blocking) ────────────────────────────────────────────
     logger.info("Starting PAE workers…")
