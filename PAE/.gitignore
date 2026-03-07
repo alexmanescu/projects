@@ -92,3 +92,6 @@ logs/
 *.pot
 *.db
 data/*.db
+
+# ── Machine-local configs (hardcoded paths) ─────────────────────────────────
+pae-profile.ps1

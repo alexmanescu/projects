@@ -29,6 +29,7 @@ kalshi-python>=2.1        # official Kalshi prediction-market SDK (auth + REST)
 
 # ── Data ──────────────────────────────────────────────────────────────────────
 pandas>=2.0
+pytz>=2024.1              # timezone support for alpaca-py bar requests
 
 # ── Testing ───────────────────────────────────────────────────────────────────
 pytest>=8.0
