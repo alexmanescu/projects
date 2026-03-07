@@ -395,9 +395,10 @@ class TelegramNotifier:
         Returns:
             Result of :meth:`send_message`.
         """
+        from html import escape as _esc
         message = (
-            f"❌ <b>PAE ERROR</b>  |  <code>{strategy}</code>\n\n"
-            f"<code>{error[:500]}</code>"
+            f"❌ <b>PAE ERROR</b>  |  <code>{_esc(strategy)}</code>\n\n"
+            f"<code>{_esc(error[:500])}</code>"
         )
         return await self.send_message(message)
 

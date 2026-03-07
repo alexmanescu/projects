@@ -171,7 +171,7 @@ CONFIG: dict = {
         },
         {
             "name": "Caixin Global",
-            "url": "https://www.caixinglobal.com/rss/",
+            "url": "https://gateway.caixin.com/api/data/global/feedlyRss.xml",
             "type": "rss",
             "bias": "center",
             "category": "alternative_asia",
@@ -181,7 +181,7 @@ CONFIG: dict = {
         },
         {
             "name": "Nikkei Asia",
-            "url": "https://asia.nikkei.com/rss",
+            "url": "https://asia.nikkei.com/rss/feed/nar",
             "type": "rss",
             "bias": "center",
             "category": "alternative_asia",
@@ -211,7 +211,7 @@ CONFIG: dict = {
         },
         {
             "name": "Korea JoongAng Daily",
-            "url": "https://koreajoongangdaily.joins.com/section/rss",
+            "url": "https://news.google.com/rss/search?q=site:koreajoongangdaily.joins.com&ceid=US:en&hl=en-US&gl=US",
             "type": "rss",
             "bias": "center",
             "category": "alternative_asia",
@@ -220,8 +220,8 @@ CONFIG: dict = {
             "weight": 1.0,
         },
         {
-            "name": "Taiwan News",
-            "url": "https://www.taiwannews.com.tw/en/rss",
+            "name": "Taipei Times",
+            "url": "https://www.taipeitimes.com/xml/index.rss",
             "type": "rss",
             "bias": "center",
             "category": "alternative_asia",

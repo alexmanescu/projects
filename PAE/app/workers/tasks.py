@@ -740,19 +740,21 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
         # 72h novelty dedup — skip if same ticker with similar thesis alerted recently
         with db_session() as db_dedup:
             from app.models import Opportunity as _Opp
-            _recent_opps = (
-                db_dedup.query(_Opp)
-                .filter(
-                    _Opp.ticker == primary_ticker,
-                    _Opp.status.in_(["pending", "approved"]),
-                    _Opp.created_at >= datetime.now(timezone.utc) - timedelta(hours=72),
+            _recent_theses = [
+                row.thesis or ""
+                for row in (
+                    db_dedup.query(_Opp.thesis)
+                    .filter(
+                        _Opp.ticker == primary_ticker,
+                        _Opp.status.in_(["pending", "approved"]),
+                        _Opp.created_at >= datetime.now(timezone.utc) - timedelta(hours=72),
+                    )
+                    .all()
                 )
-                .all()
-            )
-        if _recent_opps:
+            ]
+        if _recent_theses:
             max_overlap = max(
-                _thesis_keyword_overlap(thesis, opp.thesis or "")
-                for opp in _recent_opps
+                _thesis_keyword_overlap(thesis, t) for t in _recent_theses
             )
             if max_overlap > 0.60:
                 logger.info(
@@ -946,19 +948,21 @@ def run_detection_cycle(strategy_name: str) -> dict:
         # 72h novelty dedup — skip if same ticker with similar thesis alerted recently
         with db_session() as db_dedup:
             from app.models import Opportunity as _Opp
-            _recent_opps = (
-                db_dedup.query(_Opp)
-                .filter(
-                    _Opp.ticker == primary_ticker,
-                    _Opp.status.in_(["pending", "approved"]),
-                    _Opp.created_at >= datetime.now(timezone.utc) - timedelta(hours=72),
+            _recent_theses = [
+                row.thesis or ""
+                for row in (
+                    db_dedup.query(_Opp.thesis)
+                    .filter(
+                        _Opp.ticker == primary_ticker,
+                        _Opp.status.in_(["pending", "approved"]),
+                        _Opp.created_at >= datetime.now(timezone.utc) - timedelta(hours=72),
+                    )
+                    .all()
                 )
-                .all()
-            )
-        if _recent_opps:
+            ]
+        if _recent_theses:
             max_overlap = max(
-                _thesis_keyword_overlap(thesis, opp.thesis or "")
-                for opp in _recent_opps
+                _thesis_keyword_overlap(thesis, t) for t in _recent_theses
             )
             if max_overlap > 0.60:
                 logger.info(
