@@ -320,14 +320,29 @@ class TelegramNotifier:
 
         thesis_preview = (thesis[:280] + "...") if len(thesis) > 280 else thesis
 
+        # Micro-gains get a distinct header and expiry/ROI lines
+        is_micro = signal_type == "kalshi_micro_gain"
+        hours_to_expiry = opportunity.get("hours_to_expiry")
+        roi_pct = opportunity.get("roi_pct")
+
+        header = "⚡ <b>KALSHI MICRO-GAIN</b>" if is_micro else "🎰 <b>KALSHI OPPORTUNITY</b>"
+
+        extra_lines = ""
+        if is_micro:
+            if hours_to_expiry is not None:
+                extra_lines += f"⏰ <b>Expires in</b> {hours_to_expiry:.0f}h\n"
+            if roi_pct is not None:
+                extra_lines += f"💰 <b>ROI:</b> {roi_pct:.1f}% on resolution\n"
+
         message = (
-            f"🎰 <b>KALSHI OPPORTUNITY</b>\n\n"
+            f"{header}\n\n"
             f"<b>Market:</b> <code>{market_id}</code>\n"
             f"<b>Signal:</b> {signal_type}\n\n"
             f"<b>Trade:</b> BUY {side} @ {contract_price}¢/contract\n"
             f"<b>YES price:</b> {yes_price}¢  |  <b>NO price:</b> {no_price}¢\n"
             f"<b>Suggested:</b> ${amount:,.2f}\n"
-            f"<b>Relevance:</b> {confluence:.0%}\n\n"
+            f"<b>Relevance:</b> {confluence:.0%}\n"
+            f"{extra_lines}\n"
             f"<b>Rationale:</b>\n{thesis_preview}\n\n"
             f"<b>Commands:</b>\n"
             f"Buy: <code>YES {opp_id}</code>\n"

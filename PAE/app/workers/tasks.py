@@ -1015,7 +1015,16 @@ def run_detection_cycle(strategy_name: str) -> dict:
             max_days=90,
             category_filter={"taiwan", "tech_policy", "geopolitical"},
         )
-        counts["opportunities_sent"] += kalshi_layer_a + kalshi_layer_b
+        # Micro-gains: high-probability near-expiry markets for capital compounding
+        kalshi_micro = _surface_kalshi_market_signals(
+            strategy_id=strategy_id,
+            notifier=notifier,
+            llm=llm,
+            yes_threshold=85,
+            max_days=14,
+            micro_gains_mode=True,
+        )
+        counts["opportunities_sent"] += kalshi_layer_a + kalshi_layer_b + kalshi_micro
 
     logger.info(
         "Detection cycle complete for %s: %s",
@@ -1339,6 +1348,16 @@ _KALSHI_SIGNAL_CATEGORIES: dict[str, list[str]] = {
     "taiwan":       ["Taiwan", "Taiwan Strait", "TSMC", "reunification"],
 }
 
+_MICRO_GAINS_SEARCH_TERMS: list[str] = [
+    "election", "primary", "nominee", "runoff",
+    "Fed rate", "FOMC", "jobs report", "CPI",
+    "government shutdown", "debt ceiling",
+    "Supreme Court", "confirmation",
+    "tariff", "trade deal", "sanctions",
+    "Iran", "Russia", "North Korea", "ceasefire",
+    "temperature", "weather",
+]
+
 
 def _surface_kalshi_market_signals(
     strategy_id: int | None,
@@ -1347,12 +1366,17 @@ def _surface_kalshi_market_signals(
     yes_threshold: int = 65,
     max_days: int = 7,
     category_filter: set[str] | None = None,
+    micro_gains_mode: bool = False,
 ) -> int:
     """Surface high-probability Kalshi markets as direct trade opportunities.
 
     Polls Kalshi using static ``_KALSHI_SIGNAL_CATEGORIES`` plus any
     DB-approved terms from the ``kalshi_categories`` table.  Markets with
     YES >= yes_threshold or YES <= (100 - yes_threshold) are surfaced.
+
+    When ``micro_gains_mode=True``, uses dedicated search terms, skips LLM
+    thesis generation, adds a volume floor, and tags opportunities as
+    ``kalshi_micro_gain``.
 
     Returns:
         Number of Kalshi opportunity alerts sent.
@@ -1363,25 +1387,32 @@ def _surface_kalshi_market_signals(
     from app.services.trading.kalshi_interface import KalshiInterface, KalshiError
     from app.models import Opportunity
 
-    # Build search terms: static baseline + DB-approved
-    search_terms: list[str] = []
-    for cat_name, terms in _KALSHI_SIGNAL_CATEGORIES.items():
-        if category_filter is None or cat_name in category_filter:
-            search_terms.extend(terms)
+    # Build search terms
+    if micro_gains_mode:
+        search_terms = list(_MICRO_GAINS_SEARCH_TERMS)
+    else:
+        search_terms: list[str] = []
+        for cat_name, terms in _KALSHI_SIGNAL_CATEGORIES.items():
+            if category_filter is None or cat_name in category_filter:
+                search_terms.extend(terms)
 
-    try:
-        from app.models.kalshi_category import KalshiCategory
-        with db_session() as db:
-            approved = (
-                db.query(KalshiCategory)
-                .filter(KalshiCategory.status == "approved")
-                .all()
-            )
-            search_terms.extend(row.term for row in approved)
-    except Exception as exc:
-        logger.debug("_surface_kalshi_market_signals: could not load approved categories: %s", exc)
+        try:
+            from app.models.kalshi_category import KalshiCategory
+            with db_session() as db:
+                approved = (
+                    db.query(KalshiCategory)
+                    .filter(KalshiCategory.status == "approved")
+                    .all()
+                )
+                search_terms.extend(row.term for row in approved)
+        except Exception as exc:
+            logger.debug("_surface_kalshi_market_signals: could not load approved categories: %s", exc)
 
-    logger.info("_surface_kalshi_market_signals: searching %d terms (max_days=%s)", len(search_terms), max_days)
+    mode_label = "micro-gains" if micro_gains_mode else "standard"
+    logger.info(
+        "_surface_kalshi_market_signals [%s]: searching %d terms (threshold=%d, max_days=%s)",
+        mode_label, len(search_terms), yes_threshold, max_days,
+    )
     try:
         kalshi = KalshiInterface()
     except Exception as exc:
@@ -1392,6 +1423,15 @@ def _surface_kalshi_market_signals(
     seen_tickers: set[str] = set()
     dedup_cutoff = datetime.now(timezone.utc) - timedelta(hours=24)
     sent = 0
+
+    _SPORT_BLOCKED = (
+        "sport", "entertainment", "pop culture", "award",
+        "nba", "nfl", "nhl", "mlb", "nascar", "golf",
+    )
+    _SPORT_TITLE_KW = (
+        "points", "rebounds", "assists", "touchdowns", "goals",
+        "james", "lebron", "westbrook", "curry", "mahomes",
+    )
 
     for term in search_terms:
         time.sleep(1.5)  # stay inside Kalshi rate limits (~40 req/min)
@@ -1420,14 +1460,6 @@ def _surface_kalshi_market_signals(
                 market.get("category") or market.get("event_category") or ""
             ).lower().strip()
             mkt_title = (market.get("title") or market.get("subtitle") or "").lower()
-            _SPORT_BLOCKED = (
-                "sport", "entertainment", "pop culture", "award",
-                "nba", "nfl", "nhl", "mlb", "nascar", "golf",
-            )
-            _SPORT_TITLE_KW = (
-                "points", "rebounds", "assists", "touchdowns", "goals",
-                "james", "lebron", "westbrook", "curry", "mahomes",
-            )
             logger.debug("_surface_kalshi: ticker=%s category=%r title=%r", ticker, mkt_category, mkt_title)
             if (
                 any(blocked in mkt_category for blocked in _SPORT_BLOCKED)
@@ -1437,12 +1469,22 @@ def _surface_kalshi_market_signals(
             ):
                 continue
 
+            # Volume floor for micro-gains — skip illiquid markets
+            if micro_gains_mode:
+                volume = int(market.get("volume", 0) or 0)
+                if volume < 100:
+                    logger.debug("_surface_kalshi: skip %s — low volume (%d)", ticker, volume)
+                    continue
+
             # Only surface markets closing within max_days — keeps alerts actionable
             close_time_str = market.get("close_time") or market.get("expiration_time") or ""
+            hours_out: float | None = None
             if close_time_str:
                 try:
                     close_dt = datetime.fromisoformat(close_time_str.replace("Z", "+00:00"))
-                    days_out = (close_dt - datetime.now(timezone.utc)).days
+                    delta = close_dt - datetime.now(timezone.utc)
+                    days_out = delta.days
+                    hours_out = delta.total_seconds() / 3600
                     if days_out > max_days or days_out < 0:
                         continue
                 except (ValueError, TypeError):
@@ -1468,23 +1510,34 @@ def _surface_kalshi_market_signals(
             suggested_contracts = max(5, int(200 / max(contract_price, 1)))
             suggested_amount = round(suggested_contracts * contract_price / 100, 2)
             confidence = round(contract_price / 100.0, 2)
+            roi = round((100 - contract_price) / max(contract_price, 1) * 100, 1)
 
-            try:
-                thesis_body = llm.generate_raw(
-                    f"In 2 sentences, explain why this Kalshi prediction market "
-                    f"at {contract_price}¢ represents a strong trading opportunity:\n"
-                    f"Market: {title}\n"
-                    f"Side: {side.upper()}\n"
-                    f"Be concise and actionable.",
-                    temperature=0.5,
-                    max_tokens=150,
+            # Micro-gains: skip LLM, use simple template
+            if micro_gains_mode:
+                expiry_str = f"{hours_out:.0f}h" if hours_out is not None else "unknown"
+                thesis_body = (
+                    f"Micro-gain: {side.upper()} @ {contract_price}¢ → $1.00 payout "
+                    f"({roi}% ROI). Expires in {expiry_str}."
                 )
-            except Exception:
-                thesis_body = f"High-probability Kalshi market at {contract_price}¢ — direct YES/NO signal."
+                topic = "kalshi_micro_gain"
+            else:
+                try:
+                    thesis_body = llm.generate_raw(
+                        f"In 2 sentences, explain why this Kalshi prediction market "
+                        f"at {contract_price}¢ represents a strong trading opportunity:\n"
+                        f"Market: {title}\n"
+                        f"Side: {side.upper()}\n"
+                        f"Be concise and actionable.",
+                        temperature=0.5,
+                        max_tokens=150,
+                    )
+                except Exception:
+                    thesis_body = f"High-probability Kalshi market at {contract_price}¢ — direct YES/NO signal."
+                topic = "kalshi_high_prob"
 
             opportunity = {
                 "ticker": ticker,
-                "topic": "kalshi_high_prob",
+                "topic": topic,
                 "thesis": (
                     f"Kalshi market: {title}\n\n"
                     f"YES: {yes_price}¢  NO: {100 - yes_price}¢\n\n"
@@ -1502,11 +1555,14 @@ def _surface_kalshi_market_signals(
                 "kalshi_side": side,
                 "kalshi_yes_price": yes_price,
             }
+            if micro_gains_mode and hours_out is not None:
+                opportunity["hours_to_expiry"] = round(hours_out, 1)
+                opportunity["roi_pct"] = roi
 
             _write_signal(
                 strategy_id=strategy_id,
                 ticker=ticker,
-                signal_type="kalshi_high_prob",
+                signal_type=topic,
                 confidence=confidence,
                 raw={"market_ticker": ticker, "yes_price": yes_price, "title": title},
             )
@@ -1515,8 +1571,9 @@ def _surface_kalshi_market_signals(
                 _async_notify(notifier.send_kalshi_opportunity_alert(opportunity))
                 sent += 1
                 logger.info(
-                    "_surface_kalshi: alert sent %s %s@%d¢",
-                    ticker, side.upper(), contract_price,
+                    "_surface_kalshi [%s]: alert sent %s %s@%d¢ (ROI=%.1f%%, expiry=%s)",
+                    mode_label, ticker, side.upper(), contract_price, roi,
+                    f"{hours_out:.0f}h" if hours_out is not None else "n/a",
                 )
             except Exception as exc:
                 logger.error("_surface_kalshi: alert failed for %s: %s", ticker, exc)
