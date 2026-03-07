@@ -618,7 +618,7 @@ def _run_strategy_pipeline(cfg: dict) -> dict:
 
             for article in articles:
                 # Tag with source category so PatternDetector can bucket it.
-                tagged = {**article, "category": category}
+                tagged = {**article, "category": category, "weight": source.get("weight", 1.0)}
                 all_articles.append(tagged)
 
                 if settings.dry_run:
@@ -844,7 +844,7 @@ def run_detection_cycle(strategy_name: str) -> dict:
             counts["error"] += 1
             continue
         for article in articles:
-            all_articles.append({**article, "category": category})
+            all_articles.append({**article, "category": category, "weight": source.get("weight", 1.0)})
 
     counts["articles_fetched"] = len(all_articles)
     logger.info("detection_cycle: %d articles fetched across %d sources",
@@ -995,12 +995,22 @@ def run_detection_cycle(strategy_name: str) -> dict:
     if _is_worker_paused("detect_kalshi"):
         logger.info("detection_cycle: Kalshi proactive scan paused via Telegram")
     else:
-        kalshi_direct = _surface_kalshi_market_signals(
+        # Layer A scan: all categories, 7-day window (fast-decay signals)
+        kalshi_layer_a = _surface_kalshi_market_signals(
             strategy_id=strategy_id,
             notifier=notifier,
             llm=llm,
+            max_days=7,
         )
-        counts["opportunities_sent"] += kalshi_direct
+        # Layer B scan: structural categories only, 90-day window (slow-decay)
+        kalshi_layer_b = _surface_kalshi_market_signals(
+            strategy_id=strategy_id,
+            notifier=notifier,
+            llm=llm,
+            max_days=90,
+            category_filter={"taiwan", "tech_policy", "geopolitical"},
+        )
+        counts["opportunities_sent"] += kalshi_layer_a + kalshi_layer_b
 
     logger.info(
         "Detection cycle complete for %s: %s",
@@ -1330,6 +1340,8 @@ def _surface_kalshi_market_signals(
     notifier,
     llm,
     yes_threshold: int = 65,
+    max_days: int = 7,
+    category_filter: set[str] | None = None,
 ) -> int:
     """Surface high-probability Kalshi markets as direct trade opportunities.
 
@@ -1348,8 +1360,9 @@ def _surface_kalshi_market_signals(
 
     # Build search terms: static baseline + DB-approved
     search_terms: list[str] = []
-    for terms in _KALSHI_SIGNAL_CATEGORIES.values():
-        search_terms.extend(terms)
+    for cat_name, terms in _KALSHI_SIGNAL_CATEGORIES.items():
+        if category_filter is None or cat_name in category_filter:
+            search_terms.extend(terms)
 
     try:
         from app.models.kalshi_category import KalshiCategory
@@ -1418,13 +1431,13 @@ def _surface_kalshi_market_signals(
             ):
                 continue
 
-            # Only surface markets closing within 7 days — keeps alerts actionable
+            # Only surface markets closing within max_days — keeps alerts actionable
             close_time_str = market.get("close_time") or market.get("expiration_time") or ""
             if close_time_str:
                 try:
                     close_dt = datetime.fromisoformat(close_time_str.replace("Z", "+00:00"))
                     days_out = (close_dt - datetime.now(timezone.utc)).days
-                    if days_out > 7 or days_out < 0:
+                    if days_out > max_days or days_out < 0:
                         continue
                 except (ValueError, TypeError):
                     pass  # unparseable date — let it through

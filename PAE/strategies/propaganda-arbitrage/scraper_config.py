@@ -8,9 +8,16 @@ Source categories
 -----------------
 government_official  – White House, State Dept, USTR
 western_mainstream   – Reuters, Bloomberg, FT, Foreign Policy, Economist
-western_tech         – TechCrunch, Ars Technica
-alternative_asia     – SCMP, Global Times
-social_media         – Reddit WSB
+western_tech         – TechCrunch, Ars Technica, Semiconductor Engineering
+alternative_asia     – SCMP, Global Times, Caixin, Nikkei Asia, EE Times Asia,
+                       The Diplomat, Korea JoongAng Daily, Taiwan News
+social_media         – Reddit WSB, Google Trends
+
+Weight field
+------------
+``weight`` (default 1.0) is used by ``PatternDetector.analyze_coverage_gaps()``
+to compute weighted article counts.  Higher-signal sources (government, Asian
+business press) get 1.5; noise-heavy social sources get 0.5.
 """
 
 STRATEGY_NAME = "propaganda-arbitrage"
@@ -27,6 +34,7 @@ CONFIG: dict = {
             "category": "government_official",
             "tags": ["government", "policy", "executive"],
             "priority": 1,
+            "weight": 1.5,
         },
         {
             "name": "State Department Press Releases",
@@ -36,6 +44,7 @@ CONFIG: dict = {
             "category": "government_official",
             "tags": ["government", "foreign-policy", "sanctions"],
             "priority": 1,
+            "weight": 1.5,
         },
         {
             "name": "USTR News",
@@ -45,6 +54,7 @@ CONFIG: dict = {
             "category": "government_official",
             "tags": ["trade", "tariffs", "policy"],
             "priority": 1,
+            "weight": 1.5,
         },
         # ── Western Mainstream ────────────────────────────────────────────────
         {
@@ -55,6 +65,7 @@ CONFIG: dict = {
             "category": "western_mainstream",
             "tags": ["finance", "markets", "global"],
             "priority": 2,
+            "weight": 1.0,
         },
         {
             "name": "Reuters Tech",
@@ -64,6 +75,7 @@ CONFIG: dict = {
             "category": "western_mainstream",
             "tags": ["technology", "semiconductor", "ai"],
             "priority": 2,
+            "weight": 1.0,
         },
         {
             "name": "Financial Times",
@@ -73,6 +85,7 @@ CONFIG: dict = {
             "category": "western_mainstream",
             "tags": ["finance", "markets", "global"],
             "priority": 2,
+            "weight": 1.0,
         },
         {
             "name": "Bloomberg Markets",
@@ -82,6 +95,7 @@ CONFIG: dict = {
             "category": "western_mainstream",
             "tags": ["finance", "markets"],
             "priority": 2,
+            "weight": 1.0,
         },
         {
             "name": "Foreign Policy",
@@ -91,6 +105,7 @@ CONFIG: dict = {
             "category": "western_mainstream",
             "tags": ["geopolitics", "diplomacy"],
             "priority": 2,
+            "weight": 1.0,
         },
         {
             "name": "The Economist – World",
@@ -100,6 +115,7 @@ CONFIG: dict = {
             "category": "western_mainstream",
             "tags": ["geopolitics", "economics"],
             "priority": 3,
+            "weight": 1.0,
         },
         # ── Western Tech ──────────────────────────────────────────────────────
         {
@@ -110,6 +126,7 @@ CONFIG: dict = {
             "category": "western_tech",
             "tags": ["technology", "startups", "ai"],
             "priority": 3,
+            "weight": 1.0,
         },
         {
             "name": "Ars Technica",
@@ -119,6 +136,17 @@ CONFIG: dict = {
             "category": "western_tech",
             "tags": ["technology", "semiconductor", "science"],
             "priority": 3,
+            "weight": 1.0,
+        },
+        {
+            "name": "Semiconductor Engineering",
+            "url": "https://semiengineering.com/feed/",
+            "type": "rss",
+            "bias": "center",
+            "category": "western_tech",
+            "tags": ["semiconductor", "chip", "technology"],
+            "priority": 2,
+            "weight": 1.5,
         },
         # ── Alternative / Asia ────────────────────────────────────────────────
         {
@@ -129,6 +157,7 @@ CONFIG: dict = {
             "category": "alternative_asia",
             "tags": ["china", "asia", "geopolitics", "technology"],
             "priority": 2,
+            "weight": 1.5,
         },
         {
             "name": "Global Times",
@@ -138,6 +167,67 @@ CONFIG: dict = {
             "category": "alternative_asia",
             "tags": ["china", "geopolitics", "policy"],
             "priority": 2,
+            "weight": 1.5,
+        },
+        {
+            "name": "Caixin Global",
+            "url": "https://www.caixinglobal.com/rss/",
+            "type": "rss",
+            "bias": "center",
+            "category": "alternative_asia",
+            "tags": ["china", "finance", "business", "technology"],
+            "priority": 1,
+            "weight": 1.5,
+        },
+        {
+            "name": "Nikkei Asia",
+            "url": "https://asia.nikkei.com/rss",
+            "type": "rss",
+            "bias": "center",
+            "category": "alternative_asia",
+            "tags": ["japan", "asia", "business", "technology"],
+            "priority": 2,
+            "weight": 1.5,
+        },
+        {
+            "name": "EE Times Asia",
+            "url": "https://www.eetasia.com/feed/",
+            "type": "rss",
+            "bias": "center",
+            "category": "alternative_asia",
+            "tags": ["electronics", "semiconductor", "asia"],
+            "priority": 2,
+            "weight": 1.5,
+        },
+        {
+            "name": "The Diplomat",
+            "url": "https://thediplomat.com/feed/",
+            "type": "rss",
+            "bias": "center",
+            "category": "alternative_asia",
+            "tags": ["asia", "geopolitics", "diplomacy"],
+            "priority": 3,
+            "weight": 1.0,
+        },
+        {
+            "name": "Korea JoongAng Daily",
+            "url": "https://koreajoongangdaily.joins.com/section/rss",
+            "type": "rss",
+            "bias": "center",
+            "category": "alternative_asia",
+            "tags": ["korea", "business", "technology"],
+            "priority": 3,
+            "weight": 1.0,
+        },
+        {
+            "name": "Taiwan News",
+            "url": "https://www.taiwannews.com.tw/en/rss",
+            "type": "rss",
+            "bias": "center",
+            "category": "alternative_asia",
+            "tags": ["taiwan", "technology", "business"],
+            "priority": 2,
+            "weight": 1.5,
         },
         # ── Social Sentiment ──────────────────────────────────────────────────
         {
@@ -148,6 +238,7 @@ CONFIG: dict = {
             "category": "social_media",
             "tags": ["retail-sentiment", "social"],
             "priority": 4,
+            "weight": 0.5,
         },
         {
             "name": "Reddit Investing",
@@ -157,6 +248,7 @@ CONFIG: dict = {
             "category": "social_media",
             "tags": ["retail-sentiment", "investing", "markets"],
             "priority": 4,
+            "weight": 0.5,
         },
         {
             "name": "Reddit Geopolitics",
@@ -166,6 +258,7 @@ CONFIG: dict = {
             "category": "social_media",
             "tags": ["geopolitics", "social"],
             "priority": 4,
+            "weight": 0.5,
         },
         {
             "name": "Reddit World News",
@@ -175,6 +268,7 @@ CONFIG: dict = {
             "category": "social_media",
             "tags": ["global", "news", "social"],
             "priority": 4,
+            "weight": 0.5,
         },
         # ── Curated ───────────────────────────────────────────────────────────
         {
@@ -185,6 +279,7 @@ CONFIG: dict = {
             "category": "western_mainstream",
             "tags": ["curated", "finance", "geopolitics", "ai"],
             "priority": 2,
+            "weight": 1.0,
         },
         # ── Trends ────────────────────────────────────────────────────────────
         {
@@ -195,6 +290,7 @@ CONFIG: dict = {
             "category": "social_media",
             "tags": ["trends", "sentiment", "retail"],
             "priority": 4,
+            "weight": 0.5,
         },
     ],
     "update_interval_minutes": 60,
@@ -206,7 +302,8 @@ def get_scrapers() -> list[dict]:
     """Return RSS sources in the format expected by ``RSSNewsScraper``.
 
     Each dict has: ``name``, ``url``, ``type``, ``bias``, ``category``,
-    ``tags``, ``priority``.  The scraping pipeline uses ``url`` and ``type``;
-    ``bias`` and ``category`` are consumed by ``PatternDetector``.
+    ``tags``, ``priority``, ``weight``.  The scraping pipeline uses ``url``
+    and ``type``; ``bias``, ``category``, and ``weight`` are consumed by
+    ``PatternDetector``.
     """
     return CONFIG["sources"]

@@ -174,10 +174,12 @@ class PatternDetector:
 
         for topic, cat_map in entity_buckets.items():
             western_count = sum(
-                len(v) for k, v in cat_map.items() if k in _WESTERN_CATEGORIES
+                sum(a.get("weight", 1.0) for a in v)
+                for k, v in cat_map.items() if k in _WESTERN_CATEGORIES
             )
             asia_count = sum(
-                len(v) for k, v in cat_map.items() if k in _ASIA_CATEGORIES
+                sum(a.get("weight", 1.0) for a in v)
+                for k, v in cat_map.items() if k in _ASIA_CATEGORIES
             )
 
             if asia_count < min_asia or western_count > max_western:
